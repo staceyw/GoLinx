@@ -2740,8 +2740,8 @@ body { display: flex; flex-direction: column; height: 100vh; }
 </div>
 
 <!-- New Linx Modal -->
-<div id="newOverlay" class="modal-overlay hidden" onclick="closeNewLinxModal()">
-  <div class="modal-box" onclick="event.stopPropagation()">
+<div id="newOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
     <div class="modal-title">New Linx</div>
     <div class="modal-body">
       <div class="form-row"><label>Type</label>
@@ -2799,8 +2799,8 @@ body { display: flex; flex-direction: column; height: 100vh; }
 </div>
 
 <!-- Edit Linx Modal (unified) -->
-<div id="editOverlay" class="modal-overlay hidden" onclick="closeEditModal()">
-  <div class="modal-box" onclick="event.stopPropagation()">
+<div id="editOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
     <div class="modal-title" id="editModalTitle">Edit</div>
     <div class="modal-body">
       <div class="form-row" style="position:relative"><label>Short Name: <span class="hostname-prefix"></span></label><input type="text" id="editShortName" spellcheck="false" autocomplete="off" /><div id="editShortNameHints" class="shortname-hints hidden"></div></div>
@@ -2862,8 +2862,8 @@ body { display: flex; flex-direction: column; height: 100vh; }
 </div>
 
 <!-- Delete Confirmation Modal -->
-<div id="deleteOverlay" class="modal-overlay hidden" onclick="closeDeleteModal()">
-  <div class="modal-box" onclick="event.stopPropagation()">
+<div id="deleteOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
     <div class="modal-title" id="deleteModalTitle">Delete</div>
     <div class="modal-body">
       <p>Are you sure you want to delete <strong id="deleteShortName"></strong>?</p>
