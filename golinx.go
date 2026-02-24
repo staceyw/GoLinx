@@ -65,7 +65,7 @@ var (
 	verbose    = flag.Bool("verbose", false, "verbose tsnet logging")
 	tsHostname      = flag.String("ts-hostname", "", "Tailscale node hostname")
 	tsDir           = flag.String("ts-dir", "", "Tailscale state directory (default: OS config dir)")
-	importFile      = flag.String("import", "", "import cards from JSON file (skips existing)")
+	importFile      = flag.String("import", "", "import linx from JSON file (skips existing)")
 	resolveFile     = flag.String("resolve", "", "resolve a link from JSON backup file and exit")
 	maxResolveDepth = flag.Int("max-resolve-depth", 5, "maximum link chain resolution depth")
 )
@@ -91,7 +91,7 @@ Flags:
   --ts-dir PATH      Tailscale state directory
                      (default: ~/.config/tsnet-golinx on Linux,
                       %%APPDATA%%\tsnet-golinx on Windows)
-  --import FILE  Import cards from JSON file (skips existing)
+  --import FILE  Import linx from JSON file (skips existing)
   --resolve FILE Resolve a link from JSON backup and exit
                  Usage: golinx --resolve links.json shortname/path
   --max-resolve-depth N  Max link chain depth (default: 5)
@@ -121,21 +121,21 @@ var currentUser = func(r *http.Request) (string, error) {
 	return whois.UserProfile.LoginName, nil
 }
 
-// canEdit returns true if the request user is allowed to modify the card.
+// canEdit returns true if the request user is allowed to modify the linx.
 // In local mode (no Tailscale), everyone can edit. On Tailscale, only the
-// owner or claimants of unowned cards can edit.
-func canEdit(r *http.Request, cardOwner string) bool {
+// owner or claimants of unowned linx can edit.
+func canEdit(r *http.Request, linxOwner string) bool {
 	if localClient == nil {
 		return true
 	}
-	if cardOwner == "" {
+	if linxOwner == "" {
 		return true
 	}
 	login, err := currentUser(r)
 	if err != nil {
 		return false
 	}
-	if login == cardOwner {
+	if login == linxOwner {
 		return true
 	}
 	if isAdmin(login) {
@@ -169,27 +169,27 @@ func validateDestURL(dest string) error {
 	}
 }
 
-// detectLinkLoop checks whether a link card's destination URL would create a
-// redirect loop through other local cards. It walks the chain up to 10 hops.
+// detectLinkLoop checks whether a link's destination URL would create a
+// redirect loop through other local linx. It walks the chain up to 10 hops.
 // Returns a user-friendly error message, or "" if no loop is detected.
-// runImport reads a JSON file exported by /.export and inserts any cards
+// runImport reads a JSON file exported by /.export and inserts any linx
 // whose shortName does not already exist in the database.
 func runImport(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading import file: %w", err)
 	}
-	var cards []Card
-	if err := json.Unmarshal(data, &cards); err != nil {
+	var items []Linx
+	if err := json.Unmarshal(data, &items); err != nil {
 		return fmt.Errorf("parsing import file: %w", err)
 	}
-	if len(cards) == 0 {
-		fmt.Println("no cards found in import file")
+	if len(items) == 0 {
+		fmt.Println("no linx found in import file")
 		return nil
 	}
 
 	var added, skipped int
-	for _, c := range cards {
+	for _, c := range items {
 		if c.ShortName == "" {
 			continue
 		}
@@ -226,32 +226,32 @@ func runResolve(path, link string) error {
 	if err != nil {
 		return fmt.Errorf("reading backup file: %w", err)
 	}
-	var cards []Card
-	if err := json.Unmarshal(data, &cards); err != nil {
+	var items []Linx
+	if err := json.Unmarshal(data, &items); err != nil {
 		return fmt.Errorf("parsing backup file: %w", err)
 	}
-	for i := range cards {
-		cards[i].ID = 0
-		db.Save(&cards[i])
+	for i := range items {
+		items[i].ID = 0
+		db.Save(&items[i])
 	}
-	fmt.Printf("loaded %d cards from %s\n\n", len(cards), path)
+	fmt.Printf("loaded %d linx from %s\n\n", len(items), path)
 
 	// Parse the link argument.
 	link = strings.TrimPrefix(link, "/")
 	short, remainder, _ := strings.Cut(link, "/")
 
-	card, err := db.LoadByShortName(short)
+	lnx, err := db.LoadByShortName(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		if s := strings.TrimRight(short, ".,()[]{}"); s != short {
 			short = s
-			card, err = db.LoadByShortName(short)
+			lnx, err = db.LoadByShortName(short)
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("/%s not found in backup", short)
 	}
-	if card.IsPersonType() {
-		fmt.Printf("/%s is a %s profile: %s %s\n", card.ShortName, card.Type, card.FirstName, card.LastName)
+	if lnx.IsPersonType() {
+		fmt.Printf("/%s is a %s profile: %s %s\n", lnx.ShortName, lnx.Type, lnx.FirstName, lnx.LastName)
 		return nil
 	}
 
@@ -260,7 +260,7 @@ func runResolve(path, link string) error {
 		Now:  time.Now().UTC(),
 		Path: remainder,
 	}
-	target, err := expandLink(card.DestinationURL, env)
+	target, err := expandLink(lnx.DestinationURL, env)
 	if err != nil {
 		return fmt.Errorf("expanding /%s: %w", short, err)
 	}
@@ -276,11 +276,11 @@ func runResolve(path, link string) error {
 		if nextShort == "" {
 			break
 		}
-		nextCard, err := db.LoadByShortName(nextShort)
-		if err != nil || nextCard.Type != CardTypeLink {
+		next, err := db.LoadByShortName(nextShort)
+		if err != nil || next.Type != LinxTypeLink {
 			break
 		}
-		nextTarget, err := expandLink(nextCard.DestinationURL, expandEnv{Now: time.Now().UTC()})
+		nextTarget, err := expandLink(next.DestinationURL, expandEnv{Now: time.Now().UTC()})
 		if err != nil {
 			break
 		}
@@ -316,7 +316,7 @@ func detectLinkLoop(shortName, destURL string) string {
 		return fmt.Sprintf("link loop detected: /%s points back to itself", shortName)
 	}
 
-	// Walk the chain through local cards.
+	// Walk the chain through local linx.
 	seen := map[string]bool{strings.ToLower(shortName): true}
 	chain := []string{shortName}
 	current := target
@@ -326,13 +326,13 @@ func detectLinkLoop(shortName, destURL string) string {
 			chain = append(chain, current)
 			return fmt.Sprintf("link loop detected: /%s", strings.Join(chain, " → /"))
 		}
-		card, err := db.LoadByShortName(current)
-		if err != nil || card.Type != CardTypeLink || card.DestinationURL == "" {
-			return "" // chain ends at a non-existent or non-link card
+		lnx, err := db.LoadByShortName(current)
+		if err != nil || lnx.Type != LinxTypeLink || lnx.DestinationURL == "" {
+			return "" // chain ends at a non-existent or non-link linx
 		}
 		seen[lower] = true
 		chain = append(chain, current)
-		nu, err := url.Parse(card.DestinationURL)
+		nu, err := url.Parse(lnx.DestinationURL)
 		if err != nil {
 			return ""
 		}
@@ -897,12 +897,12 @@ func serveHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", serveIndex)
-	mux.HandleFunc("GET /api/cards", apiCardsList)
-	mux.HandleFunc("POST /api/cards", apiCardsCreate)
-	mux.HandleFunc("PUT /api/cards/{id}", apiCardsUpdate)
-	mux.HandleFunc("DELETE /api/cards/{id}", apiCardsDelete)
-	mux.HandleFunc("POST /api/cards/{id}/avatar", apiCardsAvatarUpload)
-	mux.HandleFunc("GET /api/cards/{id}/avatar", apiCardsAvatarGet)
+	mux.HandleFunc("GET /api/linx", apiLinxList)
+	mux.HandleFunc("POST /api/linx", apiLinxCreate)
+	mux.HandleFunc("PUT /api/linx/{id}", apiLinxUpdate)
+	mux.HandleFunc("DELETE /api/linx/{id}", apiLinxDelete)
+	mux.HandleFunc("POST /api/linx/{id}/avatar", apiLinxAvatarUpload)
+	mux.HandleFunc("GET /api/linx/{id}/avatar", apiLinxAvatarGet)
 	mux.HandleFunc("GET /api/settings", apiSettingsGet)
 	mux.HandleFunc("PUT /api/settings", apiSettingsPut)
 	mux.HandleFunc("GET /api/whoami", apiWhoAmI)
@@ -929,28 +929,28 @@ func serveAddLink(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?new=1", http.StatusFound)
 }
 
-var validCardTypes = map[string]bool{
-	CardTypeLink: true, CardTypeEmployee: true, CardTypeCustomer: true, CardTypeVendor: true,
+var validLinxTypes = map[string]bool{
+	LinxTypeLink: true, LinxTypeEmployee: true, LinxTypeCustomer: true, LinxTypeVendor: true,
 }
 
-func apiCardsList(w http.ResponseWriter, r *http.Request) {
+func apiLinxList(w http.ResponseWriter, r *http.Request) {
 	filterType := r.URL.Query().Get("type")
-	if filterType != "" && !validCardTypes[filterType] {
+	if filterType != "" && !validLinxTypes[filterType] {
 		http.Error(w, "invalid type filter", http.StatusBadRequest)
 		return
 	}
-	cards, err := db.LoadAll(filterType)
+	items, err := db.LoadAll(filterType)
 	if err != nil {
-		serverError(w, "failed to load cards", err)
+		serverError(w, "failed to load linx", err)
 		return
 	}
-	if cards == nil {
-		cards = []*Card{}
+	if items == nil {
+		items = []*Linx{}
 	}
-	writeJSON(w, http.StatusOK, cards)
+	writeJSON(w, http.StatusOK, items)
 }
 
-func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
+func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Type           string `json:"type"`
 		ShortName      string `json:"shortName"`
@@ -975,7 +975,7 @@ func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
 
 	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
 	if payload.Type == "" {
-		payload.Type = CardTypeLink
+		payload.Type = LinxTypeLink
 	}
 	payload.ShortName = strings.TrimSpace(payload.ShortName)
 	payload.DestinationURL = strings.TrimSpace(payload.DestinationURL)
@@ -1002,7 +1002,7 @@ func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
 	payload.LinkedInLink = strings.TrimSpace(payload.LinkedInLink)
 	payload.Color = strings.TrimSpace(payload.Color)
 
-	if !validCardTypes[payload.Type] {
+	if !validLinxTypes[payload.Type] {
 		http.Error(w, "invalid type", http.StatusBadRequest)
 		return
 	}
@@ -1015,7 +1015,7 @@ func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.Type == CardTypeLink {
+	if payload.Type == LinxTypeLink {
 		if payload.DestinationURL == "" {
 			http.Error(w, "destinationURL is required for links", http.StatusBadRequest)
 			return
@@ -1035,7 +1035,7 @@ func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	card := &Card{
+	lnx := &Linx{
 		Type: payload.Type, ShortName: payload.ShortName,
 		DestinationURL: payload.DestinationURL, Description: payload.Description, Owner: payload.Owner,
 		FirstName: payload.FirstName, LastName: payload.LastName, Title: payload.Title,
@@ -1043,20 +1043,20 @@ func apiCardsCreate(w http.ResponseWriter, r *http.Request) {
 		WebLink: payload.WebLink, CalLink: payload.CalLink, XLink: payload.XLink, LinkedInLink: payload.LinkedInLink,
 		Color: payload.Color,
 	}
-	id, err := db.Save(card)
+	id, err := db.Save(lnx)
 	if err != nil {
-		http.Error(w, "could not create card (short name may already exist)", http.StatusConflict)
+		http.Error(w, "could not create linx (short name may already exist)", http.StatusConflict)
 		return
 	}
 	created, err := db.LoadByID(id)
 	if err != nil {
-		serverError(w, "failed to load created card", err)
+		serverError(w, "failed to load created linx", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
 }
 
-func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
+func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1100,7 +1100,7 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	payload.ShortName = strings.TrimSpace(payload.ShortName)
 
-	if !validCardTypes[payload.Type] {
+	if !validLinxTypes[payload.Type] {
 		http.Error(w, "invalid type", http.StatusBadRequest)
 		return
 	}
@@ -1116,7 +1116,7 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 	payload.DestinationURL = strings.TrimSpace(payload.DestinationURL)
 	payload.Description = strings.TrimSpace(payload.Description)
 	payload.Owner = strings.TrimSpace(payload.Owner)
-	// Claim unowned cards: if the card had no owner, set to current user.
+	// Claim unowned linx: if the linx had no owner, set to current user.
 	if existing.Owner == "" && payload.Owner == "" {
 		if login, err := currentUser(r); err == nil {
 			payload.Owner = login
@@ -1133,7 +1133,7 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 	payload.LinkedInLink = strings.TrimSpace(payload.LinkedInLink)
 	payload.Color = strings.TrimSpace(payload.Color)
 
-	if payload.Type == CardTypeLink {
+	if payload.Type == LinxTypeLink {
 		if payload.DestinationURL == "" {
 			http.Error(w, "destinationURL is required for links", http.StatusBadRequest)
 			return
@@ -1153,7 +1153,7 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	card := &Card{
+	lnx := &Linx{
 		ID: id, Type: payload.Type, ShortName: payload.ShortName,
 		DestinationURL: payload.DestinationURL, Description: payload.Description, Owner: payload.Owner,
 		FirstName: payload.FirstName, LastName: payload.LastName, Title: payload.Title,
@@ -1161,9 +1161,9 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 		WebLink: payload.WebLink, CalLink: payload.CalLink, XLink: payload.XLink, LinkedInLink: payload.LinkedInLink,
 		Color: payload.Color,
 	}
-	if err := db.Update(card); err != nil {
+	if err := db.Update(lnx); err != nil {
 		if err == fs.ErrNotExist {
-			http.Error(w, "card not found", http.StatusNotFound)
+			http.Error(w, "linx not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1171,13 +1171,13 @@ func apiCardsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := db.LoadByID(id)
 	if err != nil {
-		serverError(w, "failed to load updated card", err)
+		serverError(w, "failed to load updated linx", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
-func apiCardsDelete(w http.ResponseWriter, r *http.Request) {
+func apiLinxDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1194,10 +1194,10 @@ func apiCardsDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := db.Delete(id); err != nil {
 		if err == fs.ErrNotExist {
-			http.Error(w, "card not found", http.StatusNotFound)
+			http.Error(w, "linx not found", http.StatusNotFound)
 			return
 		}
-		serverError(w, "failed to delete card", err)
+		serverError(w, "failed to delete linx", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1257,7 +1257,7 @@ func apiWhoAmI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"login": login, "hostname": host, "tsMode": localClient != nil, "isAdmin": isAdmin(login)})
 }
 
-func apiCardsAvatarUpload(w http.ResponseWriter, r *http.Request) {
+func apiLinxAvatarUpload(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1287,7 +1287,7 @@ func apiCardsAvatarUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func apiCardsAvatarGet(w http.ResponseWriter, r *http.Request) {
+func apiLinxAvatarGet(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1386,38 +1386,38 @@ func serveRedirect(w http.ResponseWriter, r *http.Request) {
 	// Handle + suffix: show detail page instead of redirecting.
 	if strings.HasSuffix(short, "+") && remainder == "" {
 		detailShort := strings.TrimSuffix(short, "+")
-		card, err := db.LoadByShortName(detailShort)
+		lnx, err := db.LoadByShortName(detailShort)
 		if errors.Is(err, fs.ErrNotExist) {
 			if s := strings.TrimRight(detailShort, ".,()[]{}"); s != detailShort {
 				detailShort = s
-				card, err = db.LoadByShortName(detailShort)
+				lnx, err = db.LoadByShortName(detailShort)
 			}
 		}
 		if err != nil {
 			serveNotFound(w, r, detailShort)
 			return
 		}
-		if card.IsPersonType() {
-			serveProfilePage(w, r, card)
+		if lnx.IsPersonType() {
+			serveProfilePage(w, r, lnx)
 		} else {
-			serveLinkDetail(w, r, card)
+			serveLinkDetail(w, r, lnx)
 		}
 		return
 	}
 
-	card, err := db.LoadByShortName(short)
+	lnx, err := db.LoadByShortName(short)
 	if errors.Is(err, fs.ErrNotExist) {
 		if s := strings.TrimRight(short, ".,()[]{}"); s != short {
 			short = s
-			card, err = db.LoadByShortName(short)
+			lnx, err = db.LoadByShortName(short)
 		}
 	}
 	if err != nil {
 		serveNotFound(w, r, short)
 		return
 	}
-	if card.IsPersonType() {
-		serveProfilePage(w, r, card)
+	if lnx.IsPersonType() {
+		serveProfilePage(w, r, lnx)
 		return
 	}
 
@@ -1428,7 +1428,7 @@ func serveRedirect(w http.ResponseWriter, r *http.Request) {
 		user:  login,
 		query: r.URL.Query(),
 	}
-	target, err := expandLink(card.DestinationURL, env)
+	target, err := expandLink(lnx.DestinationURL, env)
 	if err != nil {
 		if errors.Is(err, errNoUser) {
 			http.Error(w, "this link requires a logged-in user", http.StatusUnauthorized)
@@ -1449,11 +1449,11 @@ func serveRedirect(w http.ResponseWriter, r *http.Request) {
 		if nextShort == "" {
 			break
 		}
-		nextCard, err := db.LoadByShortName(nextShort)
-		if err != nil || nextCard.Type != CardTypeLink {
+		next, err := db.LoadByShortName(nextShort)
+		if err != nil || next.Type != LinxTypeLink {
 			break
 		}
-		nextTarget, err := expandLink(nextCard.DestinationURL, expandEnv{Now: time.Now().UTC()})
+		nextTarget, err := expandLink(next.DestinationURL, expandEnv{Now: time.Now().UTC()})
 		if err != nil {
 			break
 		}
@@ -1497,7 +1497,7 @@ html, body {
   background: var(--body-bg); color: var(--panel-text);
 }
 body { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; }
-.card {
+.linx-box {
   background: var(--panel-bg); border: 1px solid var(--panel-border);
   border-radius: 12px; padding: 48px 40px; max-width: 480px; width: 100%;
   text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -1525,7 +1525,7 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
 </style>
 </head>
 <body>
-<div class="card">
+<div class="linx-box">
   <div class="logo"><img src="/logo.svg" alt="GoLinx" width="64" height="64" /></div>
   <div class="brand">Go<span class="accent">Linx</span></div>
   <div class="message">Linx name <span class="shortname">/{{.}}</span> does not exist yet, please go home and add one.</div>
@@ -1536,7 +1536,7 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
 
 var profileTmpl = template.Must(template.New("profile").Parse(profilePageTemplate))
 
-func serveProfilePage(w http.ResponseWriter, r *http.Request, c *Card) {
+func serveProfilePage(w http.ResponseWriter, r *http.Request, c *Linx) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	profileTmpl.Execute(w, c)
 }
@@ -1580,7 +1580,7 @@ body { display: flex; flex-direction: column; align-items: center; padding: 40px
   text-decoration: none; font-size: 0.85rem;
 }
 .back-link:hover { text-decoration: underline; }
-.profile-card {
+.profile-linx {
   background: var(--panel-bg); border: 1px solid var(--panel-border);
   border-radius: 12px; padding: 40px; max-width: 480px; width: 100%;
   text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -1622,9 +1622,9 @@ body { display: flex; flex-direction: column; align-items: center; padding: 40px
 </head>
 <body>
 <a class="back-link" href="/">&#8592; GoLinx</a>
-<div class="profile-card">
+<div class="profile-linx">
   <div class="avatar">
-    {{if .AvatarMime}}<img src="/api/cards/{{.ID}}/avatar" alt="{{.FirstName}}" />
+    {{if .AvatarMime}}<img src="/api/linx/{{.ID}}/avatar" alt="{{.FirstName}}" />
     {{else}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
     {{end}}
   </div>
@@ -1665,16 +1665,16 @@ body { display: flex; flex-direction: column; align-items: center; padding: 40px
 </html>`
 
 type linkDetailData struct {
-	*Card
+	*Linx
 	CreatedFormatted string
 }
 
 var linkDetailTmpl = template.Must(template.New("linkdetail").Parse(linkDetailPageTemplate))
 
-func serveLinkDetail(w http.ResponseWriter, r *http.Request, c *Card) {
+func serveLinkDetail(w http.ResponseWriter, r *http.Request, c *Linx) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := linkDetailData{
-		Card:             c,
+		Linx:             c,
 		CreatedFormatted: time.Unix(c.DateCreated, 0).UTC().Format("Jan 2, 2006"),
 	}
 	linkDetailTmpl.Execute(w, data)
@@ -1707,7 +1707,7 @@ body { display: flex; flex-direction: column; align-items: center; padding: 40px
   text-decoration: none; font-size: 0.85rem;
 }
 .back-link:hover { text-decoration: underline; }
-.detail-card {
+.detail-linx {
   background: var(--panel-bg); border: 1px solid var(--panel-border);
   border-radius: 12px; padding: 40px; max-width: 480px; width: 100%;
   text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -1744,7 +1744,7 @@ body { display: flex; flex-direction: column; align-items: center; padding: 40px
 </head>
 <body>
 <a class="back-link" href="/">&#8592; GoLinx</a>
-<div class="detail-card">
+<div class="detail-linx">
   <div class="link-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
   <div class="detail-name">/{{.ShortName}}</div>
   <div class="detail-type">Link</div>
@@ -2151,25 +2151,25 @@ h1 { font-size: 1.5rem; color: var(--panel-heading); margin-bottom: 20px; }
 </html>`
 
 func apiDBGet(w http.ResponseWriter, r *http.Request) {
-	cards, err := db.LoadAll("")
+	items, err := db.LoadAll("")
 	if err != nil {
-		serverError(w, "failed to load cards", err)
+		serverError(w, "failed to load linx", err)
 		return
 	}
-	if cards == nil {
-		cards = []*Card{}
+	if items == nil {
+		items = []*Linx{}
 	}
-	writeJSON(w, http.StatusOK, cards)
+	writeJSON(w, http.StatusOK, items)
 }
 
 func apiDBPut(w http.ResponseWriter, r *http.Request) {
-	var cards []Card
-	if err := json.NewDecoder(r.Body).Decode(&cards); err != nil {
+	var items []Linx
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	var added, skipped int
-	for _, c := range cards {
+	for _, c := range items {
 		if c.ShortName == "" {
 			continue
 		}
@@ -2187,14 +2187,14 @@ func apiDBPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func serveExport(w http.ResponseWriter, r *http.Request) {
-	cards, err := db.LoadAll("")
+	items, err := db.LoadAll("")
 	if err != nil {
-		serverError(w, "failed to export cards", err)
+		serverError(w, "failed to export linx", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="links.json"`)
-	json.NewEncoder(w).Encode(cards)
+	json.NewEncoder(w).Encode(items)
 }
 
 var helpPageRendered string
@@ -2433,42 +2433,42 @@ body { display: flex; flex-direction: column; height: 100vh; }
   font-size: 0.95rem;
 }
 
-.link-card {
+.linx-item {
   background: var(--bar-bg); border: 1px solid var(--panel-border);
   border-radius: 6px; padding: 14px 16px;
   transition: border-color 0.15s, box-shadow 0.15s;
   cursor: default; display: flex; flex-direction: column; gap: 6px;
 }
-.link-card:hover {
+.linx-item:hover {
   border-color: var(--btn-bg);
   box-shadow: 0 2px 12px rgba(0,0,0,0.25);
 }
-.card-shortname {
+.linx-shortname {
   font-weight: 700; font-size: 0.95rem; color: var(--panel-heading);
   align-self: flex-start;
 }
-.link-card:focus { outline: none; border-color: var(--btn-bg); border-width: 2px; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
-.card-url {
+.linx-item:focus { outline: none; border-color: var(--btn-bg); border-width: 2px; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+.linx-url {
   font-size: 0.78rem; color: var(--panel-path-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.card-desc {
+.linx-desc {
   font-size: 0.82rem; color: var(--panel-text); line-height: 1.4;
 }
-.card-meta {
+.linx-meta {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 0.72rem; color: var(--panel-path-text); margin-top: auto;
   padding-top: 6px; border-top: 1px solid var(--panel-border);
 }
-.card-owner {
+.linx-owner {
   background: var(--panel-btn-bg); color: var(--panel-btn-text);
   padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;
 }
-.card-clicks { display: flex; align-items: center; gap: 4px; }
+.linx-clicks { display: flex; align-items: center; gap: 4px; }
 
-/* Profile cards */
-.link-card.profile-card { border-left: 3px solid var(--btn-bg); }
-.profile-card-body { display: flex; gap: 12px; align-items: flex-start; }
+/* Profile linx */
+.linx-item.profile-linx { border-left: 3px solid var(--btn-bg); }
+.profile-linx-body { display: flex; gap: 12px; align-items: flex-start; }
 .profile-avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
   background: var(--panel-btn-bg); display: flex; align-items: center;
@@ -2480,29 +2480,29 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .profile-name { font-weight: 700; font-size: 0.95rem; color: var(--panel-heading); }
 .profile-email { font-size: 0.78rem; color: var(--panel-path-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-short { font-size: 0.75rem; color: var(--panel-path-text); }
-.card-badge {
+.linx-badge {
   background: var(--btn-bg); color: var(--btn-text); padding: 2px 8px;
   border-radius: 10px; font-size: 0.68rem; font-weight: 600;
 }
 
 /* List view mode */
 #link-grid.list-mode { grid-template-columns: 1fr; min-width: 0; gap: 4px; }
-#link-grid.list-mode .link-card {
+#link-grid.list-mode .linx-item {
   flex-direction: row; align-items: center; gap: 16px;
   padding: 8px 16px; border-radius: 4px;
 }
-#link-grid.list-mode .card-shortname {
+#link-grid.list-mode .linx-shortname {
   min-width: 120px; max-width: 160px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
-#link-grid.list-mode .card-url {
+#link-grid.list-mode .linx-url {
   flex: 1; min-width: 0;
 }
-#link-grid.list-mode .card-desc {
+#link-grid.list-mode .linx-desc {
   flex: 1; min-width: 0; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
-#link-grid.list-mode .card-meta {
+#link-grid.list-mode .linx-meta {
   border-top: none; margin-top: 0; padding-top: 0;
   min-width: 140px; flex-shrink: 0; justify-content: flex-end; gap: 12px;
 }
@@ -2697,7 +2697,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
 <div id="main">
   <div id="search-area">
     <input type="text" id="searchInput" placeholder="Search..." spellcheck="false" />
-    <button id="addBtn" onclick="showNewCardModal()" title="Add Linx" tabindex="-1">+</button>
+    <button id="addBtn" onclick="showNewLinxModal()" title="Add Linx" tabindex="-1">+</button>
   </div>
   <div id="toolbar">
     <div id="sort-btns">
@@ -2740,12 +2740,12 @@ body { display: flex; flex-direction: column; height: 100vh; }
 </div>
 
 <!-- New Linx Modal -->
-<div id="newOverlay" class="modal-overlay hidden" onclick="closeNewCardModal()">
+<div id="newOverlay" class="modal-overlay hidden" onclick="closeNewLinxModal()">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-title">New Linx</div>
     <div class="modal-body">
       <div class="form-row"><label>Type</label>
-        <select id="newType" onchange="toggleNewCardType()" style="width:100%;padding:8px 10px;font-size:0.85rem;background:var(--input-bg);border:1px solid var(--input-border);border-radius:4px;color:var(--input-text);outline:none;font-family:inherit">
+        <select id="newType" onchange="toggleNewLinxType()" style="width:100%;padding:8px 10px;font-size:0.85rem;background:var(--input-bg);border:1px solid var(--input-border);border-radius:4px;color:var(--input-text);outline:none;font-family:inherit">
           <option value="link">Link</option>
           <option value="employee">Employee</option>
           <option value="customer">Customer</option>
@@ -2792,13 +2792,13 @@ body { display: flex; flex-direction: column; height: 100vh; }
       </div>
     </div>
     <div class="modal-actions">
-      <button class="mbtn-cancel" onclick="closeNewCardModal()">Cancel</button>
-      <button class="mbtn-primary" onclick="saveNewCard()">Save</button>
+      <button class="mbtn-cancel" onclick="closeNewLinxModal()">Cancel</button>
+      <button class="mbtn-primary" onclick="saveNewLinx()">Save</button>
     </div>
   </div>
 </div>
 
-<!-- Edit Card Modal (unified) -->
+<!-- Edit Linx Modal (unified) -->
 <div id="editOverlay" class="modal-overlay hidden" onclick="closeEditModal()">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-title" id="editModalTitle">Edit</div>
@@ -2856,7 +2856,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
     </div>
     <div class="modal-actions">
       <button id="editCancelBtn" class="mbtn-cancel" onclick="closeEditModal()">Cancel</button>
-      <button id="editSaveBtn" class="mbtn-primary" onclick="saveEditCard()">Save</button>
+      <button id="editSaveBtn" class="mbtn-primary" onclick="saveEditLinx()">Save</button>
     </div>
   </div>
 </div>
@@ -3040,12 +3040,12 @@ var themes = {
   }
 };
 
-var allCards = [];
-var filteredCards = [];
+var allLinx = [];
+var filteredLinx = [];
 var ctxTarget = null;
-var editingCardId = null;
-var editingCardType = null;
-var deletingCardId = null;
+var editingLinxId = null;
+var editingLinxType = null;
+var deletingLinxId = null;
 var viewMode = 'grid';
 var sortMode = 'az';
 
@@ -3084,7 +3084,7 @@ function itemSortKey(item) {
   return item.shortName.toLowerCase();
 }
 
-function sortCards(arr) {
+function sortLinx(arr) {
   var copy = arr.slice();
   if (sortMode === 'popular') {
     copy.sort(function(a, b) { return (b.clickCount || 0) - (a.clickCount || 0); });
@@ -3109,10 +3109,10 @@ function itemSearchText(item) {
 
 var typeAliases = {e:'employee',c:'customer',v:'vendor',l:'link'};
 
-function filterCards() {
+function filterLinx() {
   var q = document.getElementById('searchInput').value.trim();
   if (!q) {
-    filteredCards = sortCards(allCards);
+    filteredLinx = sortLinx(allLinx);
     renderGrid();
     return;
   }
@@ -3128,16 +3128,16 @@ function filterCards() {
     }
   }
 
-  var pool = allCards;
+  var pool = allLinx;
   if (typeFilter) {
     pool = [];
-    for (var i = 0; i < allCards.length; i++) {
-      if (allCards[i].type === typeFilter) pool.push(allCards[i]);
+    for (var i = 0; i < allLinx.length; i++) {
+      if (allLinx[i].type === typeFilter) pool.push(allLinx[i]);
     }
   }
 
   if (!ql) {
-    filteredCards = sortCards(pool);
+    filteredLinx = sortLinx(pool);
     renderGrid();
     return;
   }
@@ -3154,7 +3154,7 @@ function filterCards() {
       fuzzy.push(item);
     }
   }
-  filteredCards = sortCards(exact.length > 0 ? exact : fuzzy);
+  filteredLinx = sortLinx(exact.length > 0 ? exact : fuzzy);
   renderGrid();
 }
 
@@ -3164,7 +3164,7 @@ function setSortMode(mode) {
   for (var i = 0; i < btns.length; i++) {
     btns[i].className = 'sort-btn' + (btns[i].getAttribute('data-sort') === mode ? ' sort-active' : '');
   }
-  filterCards();
+  filterLinx();
   if (!_restoring) fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
@@ -3177,21 +3177,21 @@ function typeBadge(t) {
   return badgeLabels[t] || t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-function renderPersonCard(c) {
+function renderPersonLinx(c) {
   var avatarHtml = c.avatarMime
-    ? '<img src="/api/cards/' + c.id + '/avatar" alt="' + escHtml(c.firstName) + '" />'
+    ? '<img src="/api/linx/' + c.id + '/avatar" alt="' + escHtml(c.firstName) + '" />'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
   var pcStyle = c.color ? ' style="border-left-color:' + c.color + '"' : '';
-  return '<div class="link-card profile-card" data-id="' + c.id + '"' + pcStyle + ' tabindex="0" oncontextmenu="showCtxMenu(event,' + c.id + ')" ondblclick="dblClickCard(' + c.id + ')">'
-    + '<div class="profile-card-body">'
+  return '<div class="linx-item profile-linx" data-id="' + c.id + '"' + pcStyle + ' tabindex="0" oncontextmenu="showCtxMenu(event,' + c.id + ')" ondblclick="dblClickLinx(' + c.id + ')">'
+    + '<div class="profile-linx-body">'
     + '<div class="profile-avatar">' + avatarHtml + '</div>'
     + '<div class="profile-info">'
-    + '<span class="card-shortname">' + escHtml(c.firstName + ' ' + c.lastName) + '</span>'
+    + '<span class="linx-shortname">' + escHtml(c.firstName + ' ' + c.lastName) + '</span>'
     + (c.title ? '<div class="profile-email">' + escHtml(c.title) + '</div>' : '')
     + (c.email ? '<div class="profile-email">' + escHtml(c.email) + '</div>' : '')
     + '<div class="profile-short">/' + escHtml(c.shortName) + '</div>'
     + '</div></div>'
-    + '<div class="card-meta"><span></span><span class="card-badge">' + escHtml(typeBadge(c.type)) + '</span></div>'
+    + '<div class="linx-meta"><span></span><span class="linx-badge">' + escHtml(typeBadge(c.type)) + '</span></div>'
     + '</div>';
 }
 
@@ -3199,7 +3199,7 @@ function renderGrid() {
   var grid = document.getElementById('link-grid');
   var noResults = document.getElementById('no-results');
 
-  if (filteredCards.length === 0) {
+  if (filteredLinx.length === 0) {
     grid.innerHTML = '';
     noResults.className = '';
     document.getElementById('link-count').textContent = '0 items';
@@ -3208,36 +3208,36 @@ function renderGrid() {
   noResults.className = 'hidden';
 
   var html = '';
-  for (var i = 0; i < filteredCards.length; i++) {
-    var item = filteredCards[i];
+  for (var i = 0; i < filteredLinx.length; i++) {
+    var item = filteredLinx[i];
     if (item.type !== 'link') {
-      html += renderPersonCard(item);
+      html += renderPersonLinx(item);
       continue;
     }
-    var cardStyle = item.color ? ' style="border-left:3px solid ' + item.color + '"' : '';
-    html += '<div class="link-card" data-id="' + item.id + '"' + cardStyle + ' tabindex="0" oncontextmenu="showCtxMenu(event,' + item.id + ')" ondblclick="dblClickCard(' + item.id + ')">'
-      + '<span class="card-shortname">' + escHtml(item.shortName) + '</span>'
-      + '<div class="card-url" title="' + escHtml(item.destinationURL) + '">' + escHtml(item.destinationURL) + '</div>';
+    var linxStyle = item.color ? ' style="border-left:3px solid ' + item.color + '"' : '';
+    html += '<div class="linx-item" data-id="' + item.id + '"' + linxStyle + ' tabindex="0" oncontextmenu="showCtxMenu(event,' + item.id + ')" ondblclick="dblClickLinx(' + item.id + ')">'
+      + '<span class="linx-shortname">' + escHtml(item.shortName) + '</span>'
+      + '<div class="linx-url" title="' + escHtml(item.destinationURL) + '">' + escHtml(item.destinationURL) + '</div>';
     if (item.description) {
-      html += '<div class="card-desc">' + escHtml(item.description) + '</div>';
+      html += '<div class="linx-desc">' + escHtml(item.description) + '</div>';
     }
-    html += '<div class="card-meta">';
+    html += '<div class="linx-meta">';
     if (item.owner) {
-      html += '<span class="card-owner">' + escHtml(item.owner) + '</span>';
+      html += '<span class="linx-owner">' + escHtml(item.owner) + '</span>';
     } else {
       html += '<span></span>';
     }
-    html += '<span class="card-clicks">' + (item.clickCount || 0) + ' clicks</span>';
+    html += '<span class="linx-clicks">' + (item.clickCount || 0) + ' clicks</span>';
     html += '</div></div>';
   }
   grid.innerHTML = html;
-  document.getElementById('link-count').textContent = filteredCards.length + ' item' + (filteredCards.length !== 1 ? 's' : '');
+  document.getElementById('link-count').textContent = filteredLinx.length + ' item' + (filteredLinx.length !== 1 ? 's' : '');
 }
 
-function loadCards() {
-  fetch('/api/cards').then(function(r) { return r.json(); }).then(function(cards) {
-    allCards = cards || [];
-    filterCards();
+function loadLinx() {
+  fetch('/api/linx').then(function(r) { return r.json(); }).then(function(items) {
+    allLinx = items || [];
+    filterLinx();
   }).catch(function(e) {
     showToast('Failed to load data: ' + e.message, 'error');
   });
@@ -3285,12 +3285,12 @@ function setViewMode(mode) {
 }
 
 // Context menu
-function showCtxMenu(event, cardId) {
+function showCtxMenu(event, linxId) {
   event.preventDefault();
   event.stopPropagation();
   ctxTarget = null;
-  for (var i = 0; i < allCards.length; i++) {
-    if (allCards[i].id === cardId) { ctxTarget = allCards[i]; break; }
+  for (var i = 0; i < allLinx.length; i++) {
+    if (allLinx[i].id === linxId) { ctxTarget = allLinx[i]; break; }
   }
   var editable = ctxTarget && userCanEdit(ctxTarget);
   document.getElementById('ctxView').style.display = editable ? 'none' : '';
@@ -3332,13 +3332,13 @@ function hideGearMenu() {
   document.getElementById('gear-menu').classList.remove('visible');
 }
 
-function dblClickCard(cardId) {
-  var card = null;
-  for (var i = 0; i < allCards.length; i++) {
-    if (allCards[i].id === cardId) { card = allCards[i]; break; }
+function dblClickLinx(linxId) {
+  var lnx = null;
+  for (var i = 0; i < allLinx.length; i++) {
+    if (allLinx[i].id === linxId) { lnx = allLinx[i]; break; }
   }
-  if (!card) return;
-  window.open('/' + card.shortName, '_blank', 'noopener');
+  if (!lnx) return;
+  window.open('/' + lnx.shortName, '_blank', 'noopener');
 }
 
 function ctxView() {
@@ -3373,7 +3373,7 @@ function pickColor(prefix, color) {
 }
 
 // New Linx Modal
-function showNewCardModal() {
+function showNewLinxModal() {
   document.getElementById('newType').value = 'link';
   document.getElementById('newShortName').value = '';
   document.getElementById('newDestURL').value = '';
@@ -3389,17 +3389,17 @@ function showNewCardModal() {
   document.getElementById('newXLink').value = '';
   document.getElementById('newLinkedInLink').value = '';
   pickColor('new', '');
-  toggleNewCardType();
+  toggleNewLinxType();
   document.getElementById('newOverlay').classList.remove('hidden');
   document.getElementById('newShortName').focus();
 }
 
-function closeNewCardModal() {
+function closeNewLinxModal() {
   document.getElementById('newOverlay').classList.add('hidden');
   document.getElementById('newShortNameHints').classList.add('hidden');
 }
 
-function toggleNewCardType() {
+function toggleNewLinxType() {
   var t = document.getElementById('newType').value;
   if (t === 'link') {
     document.getElementById('newLinkFields').classList.remove('hidden');
@@ -3423,9 +3423,9 @@ function updateShortNameHints(inputId, hintsId) {
   var box = document.getElementById(hintsId);
   if (!val) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   var matches = [];
-  for (var i = 0; i < allCards.length; i++) {
-    var sn = allCards[i].shortName.toLowerCase();
-    if (sn.indexOf(val) !== -1) matches.push(allCards[i].shortName);
+  for (var i = 0; i < allLinx.length; i++) {
+    var sn = allLinx[i].shortName.toLowerCase();
+    if (sn.indexOf(val) !== -1) matches.push(allLinx[i].shortName);
   }
   if (matches.length === 0) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   matches.sort();
@@ -3445,12 +3445,12 @@ document.addEventListener('input', function(e) {
   if (e.target.id === 'editShortName') updateShortNameHints('editShortName', 'editShortNameHints');
 });
 
-function saveNewCard() {
-  var cardType = document.getElementById('newType').value;
+function saveNewLinx() {
+  var linxType = document.getElementById('newType').value;
   var shortName = document.getElementById('newShortName').value.trim();
   var color = document.getElementById('newColor').value;
 
-  if (cardType === 'link') {
+  if (linxType === 'link') {
     var destURL = document.getElementById('newDestURL').value.trim();
     if (!shortName || !destURL) {
       showToast('Short Name and Destination URL are required', 'error');
@@ -3469,7 +3469,7 @@ function saveNewCard() {
       return;
     }
     var data = {
-      type: cardType, shortName: shortName, firstName: firstName,
+      type: linxType, shortName: shortName, firstName: firstName,
       lastName: document.getElementById('newLastName').value.trim(),
       title: document.getElementById('newTitle').value.trim(),
       email: document.getElementById('newEmail').value.trim(),
@@ -3482,7 +3482,7 @@ function saveNewCard() {
     };
   }
 
-  fetch('/api/cards', {
+  fetch('/api/linx', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(data)
@@ -3490,52 +3490,52 @@ function saveNewCard() {
     if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
     return r.json();
   }).then(function() {
-    closeNewCardModal();
-    loadCards();
-    showToast((cardType === 'link' ? 'Link' : typeBadge(cardType)) + ' created', 'success');
+    closeNewLinxModal();
+    loadLinx();
+    showToast((linxType === 'link' ? 'Link' : typeBadge(linxType)) + ' created', 'success');
   }).catch(function(e) {
-    showToast(e.message || 'Failed to create card', 'error');
+    showToast(e.message || 'Failed to create linx', 'error');
   });
 }
 
-// Unified Edit Card Modal
-function showEditModal(card, readonly) {
-  editingCardId = card.id;
-  editingCardType = card.type;
-  document.getElementById('editShortName').value = card.shortName;
+// Unified Edit Linx Modal
+function showEditModal(lnx, readonly) {
+  editingLinxId = lnx.id;
+  editingLinxType = lnx.type;
+  document.getElementById('editShortName').value = lnx.shortName;
 
-  if (card.type === 'link') {
+  if (lnx.type === 'link') {
     document.getElementById('editModalTitle').textContent = readonly ? 'Linx Info' : 'Edit Linx';
     document.getElementById('editLinkFields').classList.remove('hidden');
     document.getElementById('editPersonFields').classList.add('hidden');
-    document.getElementById('editDestURL').value = card.destinationURL;
-    document.getElementById('editDescription').value = card.description || '';
-    document.getElementById('editOwner').value = card.owner || '';
+    document.getElementById('editDestURL').value = lnx.destinationURL;
+    document.getElementById('editDescription').value = lnx.description || '';
+    document.getElementById('editOwner').value = lnx.owner || '';
   } else {
-    document.getElementById('editModalTitle').textContent = readonly ? 'Linx Info' : ('Edit ' + typeBadge(card.type));
+    document.getElementById('editModalTitle').textContent = readonly ? 'Linx Info' : ('Edit ' + typeBadge(lnx.type));
     document.getElementById('editLinkFields').classList.add('hidden');
     document.getElementById('editPersonFields').classList.remove('hidden');
-    document.getElementById('editFirstName').value = card.firstName;
-    document.getElementById('editLastName').value = card.lastName || '';
-    document.getElementById('editTitle').value = card.title || '';
-    document.getElementById('editEmail').value = card.email || '';
-    document.getElementById('editPhone').value = card.phone || '';
-    document.getElementById('editWebLink').value = card.webLink || '';
-    document.getElementById('editCalLink').value = card.calLink || '';
-    document.getElementById('editXLink').value = card.xLink || '';
-    document.getElementById('editLinkedInLink').value = card.linkedInLink || '';
+    document.getElementById('editFirstName').value = lnx.firstName;
+    document.getElementById('editLastName').value = lnx.lastName || '';
+    document.getElementById('editTitle').value = lnx.title || '';
+    document.getElementById('editEmail').value = lnx.email || '';
+    document.getElementById('editPhone').value = lnx.phone || '';
+    document.getElementById('editWebLink').value = lnx.webLink || '';
+    document.getElementById('editCalLink').value = lnx.calLink || '';
+    document.getElementById('editXLink').value = lnx.xLink || '';
+    document.getElementById('editLinkedInLink').value = lnx.linkedInLink || '';
     var preview = document.getElementById('editAvatarPreview');
-    if (card.avatarMime) {
-      preview.innerHTML = '<img src="/api/cards/' + card.id + '/avatar" alt="avatar" />';
+    if (lnx.avatarMime) {
+      preview.innerHTML = '<img src="/api/linx/' + lnx.id + '/avatar" alt="avatar" />';
     } else {
       preview.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
     }
     document.getElementById('editAvatarFile').value = '';
   }
-  pickColor('edit', card.color || '');
-  document.getElementById('editCreated').textContent = formatTime(card.dateCreated);
-  document.getElementById('editLastClicked').textContent = formatTime(card.lastClicked);
-  document.getElementById('editClicks').textContent = String(card.clickCount || 0);
+  pickColor('edit', lnx.color || '');
+  document.getElementById('editCreated').textContent = formatTime(lnx.dateCreated);
+  document.getElementById('editLastClicked').textContent = formatTime(lnx.lastClicked);
+  document.getElementById('editClicks').textContent = String(lnx.clickCount || 0);
 
   // Toggle readonly mode
   var fields = document.querySelectorAll('#editOverlay input, #editOverlay select, #editOverlay textarea');
@@ -3567,16 +3567,16 @@ document.getElementById('editAvatarFile').addEventListener('change', function() 
 function closeEditModal() {
   document.getElementById('editOverlay').classList.add('hidden');
   document.getElementById('editShortNameHints').classList.add('hidden');
-  editingCardId = null;
-  editingCardType = null;
+  editingLinxId = null;
+  editingLinxType = null;
 }
 
-function saveEditCard() {
-  if (!editingCardId) return;
+function saveEditLinx() {
+  if (!editingLinxId) return;
   var shortName = document.getElementById('editShortName').value.trim();
-  var data = { type: editingCardType, shortName: shortName, color: document.getElementById('editColor').value };
+  var data = { type: editingLinxType, shortName: shortName, color: document.getElementById('editColor').value };
 
-  if (editingCardType === 'link') {
+  if (editingLinxType === 'link') {
     data.destinationURL = document.getElementById('editDestURL').value.trim();
     data.description = document.getElementById('editDescription').value.trim();
     data.owner = document.getElementById('editOwner').value.trim();
@@ -3600,7 +3600,7 @@ function saveEditCard() {
     }
   }
 
-  fetch('/api/cards/' + editingCardId, {
+  fetch('/api/linx/' + editingLinxId, {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(data)
@@ -3608,48 +3608,48 @@ function saveEditCard() {
     if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
     return r.json();
   }).then(function() {
-    if (editingCardType !== 'link') {
+    if (editingLinxType !== 'link') {
       var fileInput = document.getElementById('editAvatarFile');
       if (fileInput.files && fileInput.files[0]) {
         var fd = new FormData();
         fd.append('avatar', fileInput.files[0]);
-        return fetch('/api/cards/' + editingCardId + '/avatar', {
+        return fetch('/api/linx/' + editingLinxId + '/avatar', {
           method: 'POST', body: fd
         });
       }
     }
   }).then(function() {
     closeEditModal();
-    loadCards();
-    showToast('Card updated', 'success');
+    loadLinx();
+    showToast('Linx updated', 'success');
   }).catch(function(e) {
     showToast(e.message || 'Failed to update', 'error');
   });
 }
 
 // Delete Modal
-function showDeleteModal(card) {
-  deletingCardId = card.id;
-  document.getElementById('deleteShortName').textContent = card.shortName;
-  var subtitle = card.type === 'link' ? card.destinationURL : (card.firstName + ' ' + card.lastName);
+function showDeleteModal(lnx) {
+  deletingLinxId = lnx.id;
+  document.getElementById('deleteShortName').textContent = lnx.shortName;
+  var subtitle = lnx.type === 'link' ? lnx.destinationURL : (lnx.firstName + ' ' + lnx.lastName);
   document.getElementById('deleteSubtitle').textContent = subtitle;
-  document.getElementById('deleteModalTitle').textContent = 'Delete ' + (card.type === 'link' ? 'Link' : typeBadge(card.type));
+  document.getElementById('deleteModalTitle').textContent = 'Delete ' + (lnx.type === 'link' ? 'Link' : typeBadge(lnx.type));
   document.getElementById('deleteOverlay').classList.remove('hidden');
 }
 
 function closeDeleteModal() {
   document.getElementById('deleteOverlay').classList.add('hidden');
-  deletingCardId = null;
+  deletingLinxId = null;
 }
 
 function confirmDelete() {
-  if (!deletingCardId) return;
-  fetch('/api/cards/' + deletingCardId, { method: 'DELETE' }).then(function(r) {
+  if (!deletingLinxId) return;
+  fetch('/api/linx/' + deletingLinxId, { method: 'DELETE' }).then(function(r) {
     if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
     return r.json();
   }).then(function() {
     closeDeleteModal();
-    loadCards();
+    loadLinx();
     showToast('Deleted', 'success');
   }).catch(function(e) {
     showToast(e.message || 'Failed to delete', 'error');
@@ -3683,7 +3683,7 @@ function trapFocus(overlay, e) {
 // Keyboard shortcuts
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    if (!document.getElementById('newOverlay').classList.contains('hidden')) closeNewCardModal();
+    if (!document.getElementById('newOverlay').classList.contains('hidden')) closeNewLinxModal();
     else if (!document.getElementById('editOverlay').classList.contains('hidden')) closeEditModal();
     else if (!document.getElementById('deleteOverlay').classList.contains('hidden')) closeDeleteModal();
     hideCtxMenu();
@@ -3698,46 +3698,46 @@ document.addEventListener('keydown', function(e) {
     var newOv = document.getElementById('newOverlay');
     var editOv = document.getElementById('editOverlay');
     if (!newOv.classList.contains('hidden')) {
-      e.preventDefault(); saveNewCard();
+      e.preventDefault(); saveNewLinx();
     } else if (!editOv.classList.contains('hidden') && document.getElementById('editSaveBtn').style.display !== 'none') {
-      e.preventDefault(); saveEditCard();
+      e.preventDefault(); saveEditLinx();
     }
   }
 });
 
 document.addEventListener('click', function() { hideCtxMenu(); hideGearMenu(); });
-document.getElementById('searchInput').addEventListener('input', filterCards);
+document.getElementById('searchInput').addEventListener('input', filterLinx);
 document.getElementById('searchInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && filteredCards.length === 1) {
-    window.open('/' + encodeURIComponent(filteredCards[0].shortName), '_blank');
+  if (e.key === 'Enter' && filteredLinx.length === 1) {
+    window.open('/' + encodeURIComponent(filteredLinx[0].shortName), '_blank');
     this.value = '';
-    filterCards();
+    filterLinx();
   }
 });
 
-// Enter on focused card opens the link
+// Enter on focused linx opens the link
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Enter') return;
   var el = document.activeElement;
-  if (!el || !el.classList.contains('link-card')) return;
-  var cardId = parseInt(el.getAttribute('data-id'), 10);
-  if (cardId) dblClickCard(cardId);
+  if (!el || !el.classList.contains('linx-item')) return;
+  var linxId = parseInt(el.getAttribute('data-id'), 10);
+  if (linxId) dblClickLinx(linxId);
 });
 
-// Arrow key navigation in the card grid
+// Arrow key navigation in the linx grid
 document.addEventListener('keydown', function(e) {
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].indexOf(e.key) === -1) return;
   var el = document.activeElement;
-  if (!el || !el.classList.contains('link-card')) return;
-  var cards = Array.prototype.slice.call(document.querySelectorAll('#link-grid .link-card'));
-  if (cards.length === 0) return;
-  var idx = cards.indexOf(el);
+  if (!el || !el.classList.contains('linx-item')) return;
+  var els = Array.prototype.slice.call(document.querySelectorAll('#link-grid .linx-item'));
+  if (els.length === 0) return;
+  var idx = els.indexOf(el);
   if (idx === -1) return;
-  // Detect columns by counting cards that share the same top offset as the first card
+  // Detect columns by counting items that share the same top offset as the first
   var cols = 1;
-  var firstTop = cards[0].getBoundingClientRect().top;
-  for (var i = 1; i < cards.length; i++) {
-    if (Math.abs(cards[i].getBoundingClientRect().top - firstTop) < 2) cols++;
+  var firstTop = els[0].getBoundingClientRect().top;
+  for (var i = 1; i < els.length; i++) {
+    if (Math.abs(els[i].getBoundingClientRect().top - firstTop) < 2) cols++;
     else break;
   }
   var next = -1;
@@ -3745,13 +3745,13 @@ document.addEventListener('keydown', function(e) {
   else if (e.key === 'ArrowLeft') next = idx - 1;
   else if (e.key === 'ArrowDown') next = idx + cols;
   else if (e.key === 'ArrowUp') next = idx - cols;
-  if (next >= 0 && next < cards.length) {
+  if (next >= 0 && next < els.length) {
     e.preventDefault();
-    cards[next].focus();
+    els[next].focus();
   }
 });
 
-// Trap Tab inside app: cycle through search input + cards
+// Trap Tab inside app: cycle through search input + linx
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Tab') return;
   // Trap focus inside open modals
@@ -3760,19 +3760,19 @@ document.addEventListener('keydown', function(e) {
     if (!modals[m].classList.contains('hidden')) { trapFocus(modals[m], e); return; }
   }
   var search = document.getElementById('searchInput');
-  var cards = Array.prototype.slice.call(document.querySelectorAll('#link-grid .link-card'));
-  if (cards.length === 0) { e.preventDefault(); search.focus(); return; }
+  var els = Array.prototype.slice.call(document.querySelectorAll('#link-grid .linx-item'));
+  if (els.length === 0) { e.preventDefault(); search.focus(); return; }
   var active = document.activeElement;
-  var idx = cards.indexOf(active);
+  var idx = els.indexOf(active);
   e.preventDefault();
   if (e.shiftKey) {
-    if (active === search) { cards[cards.length - 1].focus(); }
+    if (active === search) { els[els.length - 1].focus(); }
     else if (idx <= 0) { search.focus(); }
-    else { cards[idx - 1].focus(); }
+    else { els[idx - 1].focus(); }
   } else {
-    if (active === search) { cards[0].focus(); }
-    else if (idx >= cards.length - 1) { search.focus(); }
-    else { cards[idx + 1].focus(); }
+    if (active === search) { els[0].focus(); }
+    else if (idx >= els.length - 1) { search.focus(); }
+    else { els[idx + 1].focus(); }
   }
 });
 
@@ -3782,11 +3782,11 @@ var _currentUserLogin = '';
 var _tsMode = false;
 var _isAdmin = false;
 var _adminMode = false;
-function userCanEdit(card) {
+function userCanEdit(lnx) {
   if (!_tsMode) return true;
   if (_isAdmin && _adminMode) return true;
-  if (!card.owner) return true;
-  return card.owner === _currentUserLogin;
+  if (!lnx.owner) return true;
+  return lnx.owner === _currentUserLogin;
 }
 function toggleAdminMode(on) {
   _adminMode = on;
@@ -3854,13 +3854,13 @@ function toggleAdminMode(on) {
     }
   }).catch(function(){});
 
-  loadCards();
+  loadLinx();
   setTimeout(function() { _restoring = false; }, 500);
 
   // Auto-open New Linx modal when redirected from /.addlinx
   if (new URLSearchParams(window.location.search).get('new') === '1') {
     history.replaceState(null, '', '/');
-    setTimeout(showNewCardModal, 200);
+    setTimeout(showNewLinxModal, 200);
   }
 })();
 </script>

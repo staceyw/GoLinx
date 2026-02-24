@@ -1,6 +1,6 @@
 # GoLinx
 
-URL shortener and people directory in a single Go binary. Short links redirect and people cards get automatic profile pages. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners. Inspired by Tailscale's [golink](https://github.com/tailscale/golink) with theme support, enhanced UX, and additional features.
+URL shortener and people directory in a single Go binary. Short links redirect and people linx get automatic profile pages. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners. Inspired by Tailscale's [golink](https://github.com/tailscale/golink) with theme support, enhanced UX, and additional features.
 
 ![screenshot](docs/screenshot.svg)
 
@@ -19,7 +19,7 @@ go build -o golinx . && ./golinx --ts-hostname go --listen "ts+https://:443" --l
 
 **Local mode** serves plain HTTP with `local@<hostname>` identity.
 
-**Tailscale mode** joins your Tailscale tailnet via [tsnet](https://pkg.go.dev/tailscale.com/tsnet) with automatic HTTPS and user identification via WhoIs — per-user settings and auto-filled card ownership come for free.
+**Tailscale mode** joins your Tailscale tailnet via [tsnet](https://pkg.go.dev/tailscale.com/tsnet) with automatic HTTPS and user identification via WhoIs — per-user settings and auto-filled linx ownership come for free.
 
 ### Listener URIs
 
@@ -43,7 +43,7 @@ Host must be empty or an IP address — hostnames are not allowed in listener UR
 | `--ts-hostname` | — | Tailscale node hostname (required for `ts+*` listeners) |
 | `--ts-dir` | OS config dir | Tailscale state directory (e.g. `~/.config/tsnet-golinx`) |
 | `--max-resolve-depth` | `5` | Maximum link chain resolution depth |
-| `--import <file>` | — | Import cards from a JSON backup and exit |
+| `--import <file>` | — | Import linx from a JSON backup and exit |
 | `--resolve <file> <path>` | — | Resolve a short link from a JSON backup and exit |
 
 ### Configuration Matrix
@@ -118,7 +118,7 @@ Runtime files (`golinx.db`, config, binary) all live in `dev/` which is gitignor
 
 ### Seed Data
 
-GoLinx starts with an empty database. Populate it with sample cards:
+GoLinx starts with an empty database. Populate it with sample linx:
 
 ```bash
 ./scripts/seed.sh http://localhost:8080           # local
@@ -131,19 +131,19 @@ When running on Tailscale, GoLinx enforces simple owner-based access control:
 
 | Situation | Edit | Delete | UI |
 |-----------|------|--------|-----|
-| You own the card | Yes | Yes | Edit + Delete |
-| Card has no owner | Yes (claims it) | Yes | Edit + Delete |
+| You own the linx | Yes | Yes | Edit + Delete |
+| Linx has no owner | Yes (claims it) | Yes | Edit + Delete |
 | Someone else owns it | No | No | View only |
 
-- Cards are automatically owned by the Tailscale user who creates them
-- Unowned cards can be claimed by anyone — editing sets you as owner
+- Linx are automatically owned by the Tailscale user who creates them
+- Unowned linx can be claimed by anyone — editing sets you as owner
 - Owners can clear or transfer ownership via the owner field
 - Non-owners see a readonly "Linx Info" view
 - **Admin mode** — users listed in `admins` config can toggle admin mode to bypass ownership checks
 - Local mode (no Tailscale) has no restrictions
 - Enforced server-side — API returns 403 for unauthorized edits/deletes
 
-## Card Types
+## Linx Types
 
 | Type | Badge | `/{name}` behavior |
 |------|-------|-----------------------|
@@ -154,7 +154,7 @@ When running on Tailscale, GoLinx enforces simple owner-based access control:
 
 ## Features
 
-- **Unified card model** — links, employees, customers, and vendors in one grid
+- **Unified linx model** — links, employees, customers, and vendors in one grid
 - **Fuzzy search** with type prefix filters (`:e`, `:c`, `:v`, `:l`)
 - **12 themes** — Catppuccin Mocha, Dracula, Nord, Solarized Dark/Light, One Dark, Gruvbox, Monokai Dimmed, Abyss, Catppuccin Latte, GitHub Light, IBM 3278 Retro
 - **Grid and list views** with sort by A-Z, Popular, or Recent
@@ -166,10 +166,10 @@ When running on Tailscale, GoLinx enforces simple owner-based access control:
 - **Punctuation trimming** — trailing `.`, `,`, `()`, `[]`, `{}` stripped for copy-paste tolerance
 - **Link loop detection** — creating a link that would form a cycle is rejected with a clear error message
 - **Click tracking** with count and last-clicked timestamp
-- **Owner-based permissions** — edit/delete your own cards, view others (Tailscale mode)
+- **Owner-based permissions** — edit/delete your own linx, view others (Tailscale mode)
 - **Admin mode** — configurable admin list with header toggle to bypass ownership checks
 - **Right-click context menu** for Edit, Delete, or View
-- **Keyboard navigation** — Tab cycles cards, Enter opens single search result, Ctrl+S saves, Escape closes modals, F1 opens help
+- **Keyboard navigation** — Tab cycles Linx's, Enter opens single search result, Ctrl+S saves, Escape closes modals, F1 opens help
 - **Modal focus trapping** — Tab stays within open dialogs
 - **Avatar upload** with live preview (5 MB max)
 - **Graceful shutdown** on Ctrl+C
@@ -178,8 +178,8 @@ When running on Tailscale, GoLinx enforces simple owner-based access control:
 - **Per-user settings** persisted to SQLite (theme, view mode, sort mode)
 - **Single binary** — all HTML/CSS/JS/help embedded, no external assets
 - **In-app help** at `/.help` — rendered from Markdown via [goldmark](https://github.com/yuin/goldmark)
-- **JSON export** of all cards at `/.export`
-- **CLI import** — `--import links.json` loads cards from a backup, skipping existing short names
+- **JSON export** of all linx at `/.export`
+- **CLI import** — `--import links.json` loads linx from a backup, skipping existing short names
 - **CLI resolve** — `--resolve links.json github/org/repo` tests link resolution from a backup without starting the server
 
 ## Link Resolution
@@ -243,7 +243,7 @@ Example: a link with destination `https://search.example.com/q={{QueryEscape .Qu
 
 ### Export
 
-Visit `/.export` to download all cards as `links.json`.
+Visit `/.export` to download all linx as `links.json`.
 
 ### Import
 
@@ -251,15 +251,15 @@ Visit `/.export` to download all cards as `links.json`.
 ./golinx --import links.json
 ```
 
-Loads cards from a JSON backup into the database. Existing short names are skipped — import is additive only.
+Loads linx from a JSON backup into the database. Existing short names are skipped — import is additive only.
 
 ### Resolve
 
 ```bash
-./golinx --resolve links.json github/anthropics/claude
+./golinx --resolve links.json github/test
 ```
 
-Tests link resolution from a JSON backup without starting the server. Loads cards into an in-memory SQLite database and runs the same resolution logic as the live server. Useful for verifying redirects before importing.
+Tests link resolution from a JSON backup without starting the server. Loads data into an in-memory SQLite database and runs the same resolution logic as the live server. Useful for verifying redirects before importing.
 
 ## Architecture
 
@@ -270,7 +270,7 @@ db.go                SQLite data layer with mutex-protected CRUD
 schema.sql           Embedded via //go:embed
 docs/help.md         Help content (Markdown, embedded and rendered via goldmark)
 static/favicon.svg   App icon (embedded via //go:embed)
-scripts/seed.ps1     Seed script for populating sample cards
+scripts/seed.ps1     Seed script for populating sample linx
 golinx.example.toml  Example configuration file
 ```
 
@@ -279,18 +279,18 @@ Pure Go with `modernc.org/sqlite`, `tailscale.com/tsnet`, and `github.com/yuin/g
 ## API
 
 ```
-GET    /api/cards              List cards (optional ?type= filter)
-POST   /api/cards              Create card
-PUT    /api/cards/{id}         Update card
-DELETE /api/cards/{id}         Delete card
-POST   /api/cards/{id}/avatar  Upload avatar
-GET    /api/cards/{id}/avatar  Serve avatar
+GET    /api/linx              List linx (optional ?type= filter)
+POST   /api/linx              Create linx
+PUT    /api/linx/{id}         Update linx
+DELETE /api/linx/{id}         Delete linx
+POST   /api/linx/{id}/avatar  Upload avatar
+GET    /api/linx/{id}/avatar  Serve avatar
 GET    /api/settings           Get setting (?key=)
 PUT    /api/settings           Save setting
 GET    /api/whoami             Current user, hostname, and Tailscale mode
 GET    /.addlinx               Open the New Linx dialog
 GET    /.help                  In-app help page
-GET    /.export                Export all cards as JSON
+GET    /.export                Export all linx as JSON
 GET    /.ping/{host}           TCP ping (host or host:port)
 GET    /.whoami                WhoIs terminal (Tailscale user/node info)
 GET    /{shortname}            Redirect or profile page

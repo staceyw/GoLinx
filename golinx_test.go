@@ -38,38 +38,38 @@ func resetDB(t *testing.T) {
 	t.Helper()
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if _, err := db.db.Exec("DELETE FROM Cards"); err != nil {
-		t.Fatalf("resetDB Cards: %v", err)
+	if _, err := db.db.Exec("DELETE FROM Linx"); err != nil {
+		t.Fatalf("resetDB Linx: %v", err)
 	}
 	if _, err := db.db.Exec("DELETE FROM Settings"); err != nil {
 		t.Fatalf("resetDB Settings: %v", err)
 	}
 }
 
-func testCards() []*Card {
-	return []*Card{
+func testLinx() []*Linx {
+	return []*Linx{
 		// Links
-		{Type: CardTypeLink, ShortName: "github", DestinationURL: "https://github.com", Description: "GitHub", Owner: "test@example.com"},
-		{Type: CardTypeLink, ShortName: "google", DestinationURL: "https://google.com", Description: "Google", Owner: "test@example.com"},
-		{Type: CardTypeLink, ShortName: "docs", DestinationURL: "https://docs.google.com/", Description: "Google Docs", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "github", DestinationURL: "https://github.com", Description: "GitHub", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "google", DestinationURL: "https://google.com", Description: "Google", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "docs", DestinationURL: "https://docs.google.com/", Description: "Google Docs", Owner: "test@example.com"},
 		// Chain: chain-a → chain-b → chain-c (external)
-		{Type: CardTypeLink, ShortName: "chain-a", DestinationURL: "/chain-b", Owner: "test@example.com"},
-		{Type: CardTypeLink, ShortName: "chain-b", DestinationURL: "/chain-c", Owner: "test@example.com"},
-		{Type: CardTypeLink, ShortName: "chain-c", DestinationURL: "https://example.com/final", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "chain-a", DestinationURL: "/chain-b", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "chain-b", DestinationURL: "/chain-c", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "chain-c", DestinationURL: "https://example.com/final", Owner: "test@example.com"},
 		// Template URLs
-		{Type: CardTypeLink, ShortName: "search", DestinationURL: "https://www.google.com/search?q={{.Path}}", Description: "Google search", Owner: "test@example.com"},
-		{Type: CardTypeLink, ShortName: "myprofile", DestinationURL: "https://corp.example.com/{{.User}}", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "search", DestinationURL: "https://www.google.com/search?q={{.Path}}", Description: "Google search", Owner: "test@example.com"},
+		{Type: LinxTypeLink, ShortName: "myprofile", DestinationURL: "https://corp.example.com/{{.User}}", Owner: "test@example.com"},
 		// People
-		{Type: CardTypeEmployee, ShortName: "john", FirstName: "John", LastName: "Doe", Title: "Engineer", Email: "john@example.com", Phone: "555-1234", Owner: "test@example.com"},
-		{Type: CardTypeCustomer, ShortName: "acme", FirstName: "Acme", LastName: "Corp", Email: "contact@acme.com", Owner: "test@example.com"},
-		{Type: CardTypeVendor, ShortName: "vendor1", FirstName: "Vendor", LastName: "One", Email: "v1@vendor.com", Owner: "test@example.com"},
+		{Type: LinxTypeEmployee, ShortName: "john", FirstName: "John", LastName: "Doe", Title: "Engineer", Email: "john@example.com", Phone: "555-1234", Owner: "test@example.com"},
+		{Type: LinxTypeCustomer, ShortName: "acme", FirstName: "Acme", LastName: "Corp", Email: "contact@acme.com", Owner: "test@example.com"},
+		{Type: LinxTypeVendor, ShortName: "vendor1", FirstName: "Vendor", LastName: "One", Email: "v1@vendor.com", Owner: "test@example.com"},
 	}
 }
 
 func seedTestData(t *testing.T) map[string]int64 {
 	t.Helper()
 	ids := make(map[string]int64)
-	for _, c := range testCards() {
+	for _, c := range testLinx() {
 		id, err := db.Save(c)
 		if err != nil {
 			t.Fatalf("seedTestData(%s): %v", c.ShortName, err)
@@ -244,7 +244,7 @@ func TestDetectLinkLoop(t *testing.T) {
 
 	t.Run("two-hop loop", func(t *testing.T) {
 		resetDB(t)
-		db.Save(&Card{Type: CardTypeLink, ShortName: "loopA", DestinationURL: "/loopB", Owner: "test@example.com"})
+		db.Save(&Linx{Type: LinxTypeLink, ShortName: "loopA", DestinationURL: "/loopB", Owner: "test@example.com"})
 		msg := detectLinkLoop("loopB", "/loopA")
 		if msg == "" || !strings.Contains(msg, "loop") {
 			t.Errorf("expected loop message, got %q", msg)
@@ -253,20 +253,20 @@ func TestDetectLinkLoop(t *testing.T) {
 
 	t.Run("chain ending external no loop", func(t *testing.T) {
 		resetDB(t)
-		db.Save(&Card{Type: CardTypeLink, ShortName: "extA", DestinationURL: "/extB", Owner: "test@example.com"})
-		db.Save(&Card{Type: CardTypeLink, ShortName: "extB", DestinationURL: "https://example.com", Owner: "test@example.com"})
+		db.Save(&Linx{Type: LinxTypeLink, ShortName: "extA", DestinationURL: "/extB", Owner: "test@example.com"})
+		db.Save(&Linx{Type: LinxTypeLink, ShortName: "extB", DestinationURL: "https://example.com", Owner: "test@example.com"})
 		msg := detectLinkLoop("newlink", "/extA")
 		if msg != "" {
 			t.Errorf("expected no loop, got %q", msg)
 		}
 	})
 
-	t.Run("non-link card breaks chain", func(t *testing.T) {
+	t.Run("non-link linx breaks chain", func(t *testing.T) {
 		resetDB(t)
-		db.Save(&Card{Type: CardTypeEmployee, ShortName: "emp1", FirstName: "Test", Owner: "test@example.com"})
+		db.Save(&Linx{Type: LinxTypeEmployee, ShortName: "emp1", FirstName: "Test", Owner: "test@example.com"})
 		msg := detectLinkLoop("newlink", "/emp1")
 		if msg != "" {
-			t.Errorf("expected no loop (person card), got %q", msg)
+			t.Errorf("expected no loop (person linx), got %q", msg)
 		}
 	})
 }
@@ -278,8 +278,8 @@ func TestDetectLinkLoop(t *testing.T) {
 func TestDB_SaveAndLoad(t *testing.T) {
 	resetDB(t)
 
-	card := &Card{Type: CardTypeLink, ShortName: "dbtest1", DestinationURL: "https://example.com", Owner: "test@example.com"}
-	id, err := db.Save(card)
+	lnx := &Linx{Type: LinxTypeLink, ShortName: "dbtest1", DestinationURL: "https://example.com", Owner: "test@example.com"}
+	id, err := db.Save(lnx)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -322,8 +322,8 @@ func TestDB_SaveAndLoad(t *testing.T) {
 func TestDB_Update(t *testing.T) {
 	resetDB(t)
 
-	id, _ := db.Save(&Card{Type: CardTypeLink, ShortName: "upd1", DestinationURL: "https://old.com", Owner: "test@example.com"})
-	err := db.Update(&Card{ID: id, Type: CardTypeLink, ShortName: "upd1", DestinationURL: "https://new.com", Owner: "test@example.com"})
+	id, _ := db.Save(&Linx{Type: LinxTypeLink, ShortName: "upd1", DestinationURL: "https://old.com", Owner: "test@example.com"})
+	err := db.Update(&Linx{ID: id, Type: LinxTypeLink, ShortName: "upd1", DestinationURL: "https://new.com", Owner: "test@example.com"})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestDB_Update(t *testing.T) {
 	}
 
 	// Update non-existent
-	err = db.Update(&Card{ID: 999999, Type: CardTypeLink, ShortName: "nope"})
+	err = db.Update(&Linx{ID: 999999, Type: LinxTypeLink, ShortName: "nope"})
 	if err != fs.ErrNotExist {
 		t.Errorf("Update(999999) = %v, want fs.ErrNotExist", err)
 	}
@@ -342,7 +342,7 @@ func TestDB_Update(t *testing.T) {
 func TestDB_Delete(t *testing.T) {
 	resetDB(t)
 
-	id, _ := db.Save(&Card{Type: CardTypeLink, ShortName: "del1", DestinationURL: "https://example.com", Owner: "test@example.com"})
+	id, _ := db.Save(&Linx{Type: LinxTypeLink, ShortName: "del1", DestinationURL: "https://example.com", Owner: "test@example.com"})
 	if err := db.Delete(id); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -361,65 +361,65 @@ func TestDB_LoadAll(t *testing.T) {
 	resetDB(t)
 	seedTestData(t)
 
-	// All cards
+	// All linx
 	all, err := db.LoadAll("")
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
-	if len(all) != len(testCards()) {
-		t.Errorf("LoadAll() returned %d cards, want %d", len(all), len(testCards()))
+	if len(all) != len(testLinx()) {
+		t.Errorf("LoadAll() returned %d linx, want %d", len(all), len(testLinx()))
 	}
 
 	// Filter by type
-	links, err := db.LoadAll(CardTypeLink)
+	links, err := db.LoadAll(LinxTypeLink)
 	if err != nil {
 		t.Fatalf("LoadAll(link): %v", err)
 	}
 	for _, c := range links {
-		if c.Type != CardTypeLink {
-			t.Errorf("filter returned non-link card: %s (type %s)", c.ShortName, c.Type)
+		if c.Type != LinxTypeLink {
+			t.Errorf("filter returned non-link linx: %s (type %s)", c.ShortName, c.Type)
 		}
 	}
 	if len(links) != 8 { // github, google, docs, chain-a/b/c, search, myprofile
-		t.Errorf("LoadAll(link) = %d cards, want 8", len(links))
+		t.Errorf("LoadAll(link) = %d linx, want 8", len(links))
 	}
 
-	employees, err := db.LoadAll(CardTypeEmployee)
+	employees, err := db.LoadAll(LinxTypeEmployee)
 	if err != nil {
 		t.Fatalf("LoadAll(employee): %v", err)
 	}
 	if len(employees) != 1 {
-		t.Errorf("LoadAll(employee) = %d cards, want 1", len(employees))
+		t.Errorf("LoadAll(employee) = %d linx, want 1", len(employees))
 	}
 }
 
 func TestDB_IncrementClick(t *testing.T) {
 	resetDB(t)
-	db.Save(&Card{Type: CardTypeLink, ShortName: "clicks1", DestinationURL: "https://example.com", Owner: "test@example.com"})
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "clicks1", DestinationURL: "https://example.com", Owner: "test@example.com"})
 
 	if err := db.IncrementClick("clicks1"); err != nil {
 		t.Fatalf("IncrementClick: %v", err)
 	}
-	card, _ := db.LoadByShortName("clicks1")
-	if card.ClickCount != 1 {
-		t.Errorf("ClickCount = %d, want 1", card.ClickCount)
+	lnx, _ := db.LoadByShortName("clicks1")
+	if lnx.ClickCount != 1 {
+		t.Errorf("ClickCount = %d, want 1", lnx.ClickCount)
 	}
-	if card.LastClicked == 0 {
+	if lnx.LastClicked == 0 {
 		t.Error("LastClicked should be non-zero after click")
 	}
 
 	// Second click
 	db.IncrementClick("clicks1")
-	card, _ = db.LoadByShortName("clicks1")
-	if card.ClickCount != 2 {
-		t.Errorf("ClickCount = %d, want 2", card.ClickCount)
+	lnx, _ = db.LoadByShortName("clicks1")
+	if lnx.ClickCount != 2 {
+		t.Errorf("ClickCount = %d, want 2", lnx.ClickCount)
 	}
 }
 
-func TestDB_CardCount(t *testing.T) {
+func TestDB_LinxCount(t *testing.T) {
 	resetDB(t)
 
-	count, err := db.CardCount("")
+	count, err := db.LinxCount("")
 	if err != nil {
 		t.Fatalf("CardCount: %v", err)
 	}
@@ -428,12 +428,12 @@ func TestDB_CardCount(t *testing.T) {
 	}
 
 	seedTestData(t)
-	count, _ = db.CardCount("")
-	if count != len(testCards()) {
-		t.Errorf("total count = %d, want %d", count, len(testCards()))
+	count, _ = db.LinxCount("")
+	if count != len(testLinx()) {
+		t.Errorf("total count = %d, want %d", count, len(testLinx()))
 	}
 
-	linkCount, _ := db.CardCount(CardTypeLink)
+	linkCount, _ := db.LinxCount(LinxTypeLink)
 	if linkCount != 8 {
 		t.Errorf("link count = %d, want 8", linkCount)
 	}
@@ -443,45 +443,45 @@ func TestDB_CardCount(t *testing.T) {
 // 3. API handler tests
 // ---------------------------------------------------------------------------
 
-func TestAPI_CardsList(t *testing.T) {
+func TestAPI_LinxList(t *testing.T) {
 	mux := serveHandler()
 
 	t.Run("empty database", func(t *testing.T) {
 		resetDB(t)
-		w := doRequest(t, mux, "GET", "/api/cards")
+		w := doRequest(t, mux, "GET", "/api/linx")
 		if w.Code != 200 {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		if len(cards) != 0 {
-			t.Errorf("expected empty array, got %d cards", len(cards))
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		if len(items) != 0 {
+			t.Errorf("expected empty array, got %d linx", len(items))
 		}
 	})
 
-	t.Run("all cards", func(t *testing.T) {
+	t.Run("all linx", func(t *testing.T) {
 		resetDB(t)
 		seedTestData(t)
-		w := doRequest(t, mux, "GET", "/api/cards")
+		w := doRequest(t, mux, "GET", "/api/linx")
 		if w.Code != 200 {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		if len(cards) != len(testCards()) {
-			t.Errorf("got %d cards, want %d", len(cards), len(testCards()))
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		if len(items) != len(testLinx()) {
+			t.Errorf("got %d linx, want %d", len(items), len(testLinx()))
 		}
 	})
 
 	t.Run("filter by type=link", func(t *testing.T) {
 		resetDB(t)
 		seedTestData(t)
-		w := doRequest(t, mux, "GET", "/api/cards?type=link")
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		for _, c := range cards {
-			if c.Type != CardTypeLink {
-				t.Errorf("got non-link card %s (type %s)", c.ShortName, c.Type)
+		w := doRequest(t, mux, "GET", "/api/linx?type=link")
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		for _, c := range items {
+			if c.Type != LinxTypeLink {
+				t.Errorf("got non-link linx %s (type %s)", c.ShortName, c.Type)
 			}
 		}
 	})
@@ -489,47 +489,47 @@ func TestAPI_CardsList(t *testing.T) {
 	t.Run("filter by type=employee", func(t *testing.T) {
 		resetDB(t)
 		seedTestData(t)
-		w := doRequest(t, mux, "GET", "/api/cards?type=employee")
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		if len(cards) != 1 {
-			t.Errorf("got %d employees, want 1", len(cards))
+		w := doRequest(t, mux, "GET", "/api/linx?type=employee")
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		if len(items) != 1 {
+			t.Errorf("got %d employees, want 1", len(items))
 		}
 	})
 
 	t.Run("invalid type", func(t *testing.T) {
 		resetDB(t)
-		w := doRequest(t, mux, "GET", "/api/cards?type=bogus")
+		w := doRequest(t, mux, "GET", "/api/linx?type=bogus")
 		if w.Code != 400 {
 			t.Errorf("status = %d, want 400", w.Code)
 		}
 	})
 }
 
-func TestAPI_CardsCreate(t *testing.T) {
+func TestAPI_LinxCreate(t *testing.T) {
 	mux := serveHandler()
 
 	t.Run("valid link", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "newlink", "destinationURL": "https://example.com",
 		})
 		if w.Code != 201 {
 			t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
 		}
-		var card Card
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.ShortName != "newlink" {
-			t.Errorf("shortName = %q, want %q", card.ShortName, "newlink")
+		var lnx Linx
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.ShortName != "newlink" {
+			t.Errorf("shortName = %q, want %q", lnx.ShortName, "newlink")
 		}
-		if card.Owner != "test@example.com" {
-			t.Errorf("owner = %q, want auto-set to test@example.com", card.Owner)
+		if lnx.Owner != "test@example.com" {
+			t.Errorf("owner = %q, want auto-set to test@example.com", lnx.Owner)
 		}
 	})
 
 	t.Run("valid employee", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "employee", "shortName": "newemp", "firstName": "Test",
 		})
 		if w.Code != 201 {
@@ -539,22 +539,22 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("type defaults to link", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"shortName": "deftype", "destinationURL": "https://example.com",
 		})
 		if w.Code != 201 {
 			t.Fatalf("status = %d, want 201", w.Code)
 		}
-		var card Card
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.Type != CardTypeLink {
-			t.Errorf("type = %q, want %q", card.Type, CardTypeLink)
+		var lnx Linx
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.Type != LinxTypeLink {
+			t.Errorf("type = %q, want %q", lnx.Type, LinxTypeLink)
 		}
 	})
 
 	t.Run("missing shortName", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "destinationURL": "https://example.com",
 		})
 		if w.Code != 400 {
@@ -564,7 +564,7 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("invalid shortName", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "has spaces", "destinationURL": "https://example.com",
 		})
 		if w.Code != 400 {
@@ -574,7 +574,7 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("missing destinationURL for link", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "nourl",
 		})
 		if w.Code != 400 {
@@ -584,7 +584,7 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("invalid URL scheme", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "badurl", "destinationURL": "ftp://bad.com",
 		})
 		if w.Code != 400 {
@@ -596,10 +596,10 @@ func TestAPI_CardsCreate(t *testing.T) {
 		resetDB(t)
 		// Create loopX first, then try to create loopY pointing to itself.
 		// Create a link, then try to create one pointing to itself.
-		doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "loopX", "destinationURL": "https://example.com",
 		})
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "loopY", "destinationURL": "http://localhost/loopY",
 		})
 		if w.Code != 400 {
@@ -612,7 +612,7 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("missing firstName for person", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "employee", "shortName": "nofirst",
 		})
 		if w.Code != 400 {
@@ -622,10 +622,10 @@ func TestAPI_CardsCreate(t *testing.T) {
 
 	t.Run("duplicate shortName", func(t *testing.T) {
 		resetDB(t)
-		doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "dup", "destinationURL": "https://example.com",
 		})
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "dup", "destinationURL": "https://other.com",
 		})
 		if w.Code != 409 {
@@ -634,75 +634,75 @@ func TestAPI_CardsCreate(t *testing.T) {
 	})
 }
 
-func TestAPI_CardColor(t *testing.T) {
+func TestAPI_LinxColor(t *testing.T) {
 	mux := serveHandler()
 
 	t.Run("color round-trip", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "POST", "/api/cards", map[string]string{
+		w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
 			"type": "link", "shortName": "colored", "destinationURL": "https://example.com",
 			"color": "#ef4444",
 		})
 		if w.Code != 201 {
 			t.Fatalf("create status = %d, want 201; body: %s", w.Code, w.Body.String())
 		}
-		var card Card
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.Color != "#ef4444" {
-			t.Errorf("color = %q, want %q", card.Color, "#ef4444")
+		var lnx Linx
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.Color != "#ef4444" {
+			t.Errorf("color = %q, want %q", lnx.Color, "#ef4444")
 		}
 
 		// Update color
-		w = doJSON(t, mux, "PUT", fmt.Sprintf("/api/cards/%d", card.ID), map[string]string{
+		w = doJSON(t, mux, "PUT", fmt.Sprintf("/api/linx/%d", lnx.ID), map[string]string{
 			"type": "link", "shortName": "colored", "destinationURL": "https://example.com",
 			"color": "#3b82f6",
 		})
 		if w.Code != 200 {
 			t.Fatalf("update status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.Color != "#3b82f6" {
-			t.Errorf("color = %q, want %q", card.Color, "#3b82f6")
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.Color != "#3b82f6" {
+			t.Errorf("color = %q, want %q", lnx.Color, "#3b82f6")
 		}
 
 		// Clear color
-		w = doJSON(t, mux, "PUT", fmt.Sprintf("/api/cards/%d", card.ID), map[string]string{
+		w = doJSON(t, mux, "PUT", fmt.Sprintf("/api/linx/%d", lnx.ID), map[string]string{
 			"type": "link", "shortName": "colored", "destinationURL": "https://example.com",
 			"color": "",
 		})
 		if w.Code != 200 {
 			t.Fatalf("clear status = %d, want 200", w.Code)
 		}
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.Color != "" {
-			t.Errorf("color = %q, want empty", card.Color)
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.Color != "" {
+			t.Errorf("color = %q, want empty", lnx.Color)
 		}
 	})
 }
 
-func TestAPI_CardsUpdate(t *testing.T) {
+func TestAPI_LinxUpdate(t *testing.T) {
 	mux := serveHandler()
 
 	t.Run("valid update", func(t *testing.T) {
 		resetDB(t)
 		ids := seedTestData(t)
 		id := ids["github"]
-		w := doJSON(t, mux, "PUT", fmt.Sprintf("/api/cards/%d", id), map[string]string{
+		w := doJSON(t, mux, "PUT", fmt.Sprintf("/api/linx/%d", id), map[string]string{
 			"shortName": "github", "destinationURL": "https://github.com/new", "type": "link",
 		})
 		if w.Code != 200 {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
-		var card Card
-		json.Unmarshal(w.Body.Bytes(), &card)
-		if card.DestinationURL != "https://github.com/new" {
-			t.Errorf("destinationURL = %q, want updated value", card.DestinationURL)
+		var lnx Linx
+		json.Unmarshal(w.Body.Bytes(), &lnx)
+		if lnx.DestinationURL != "https://github.com/new" {
+			t.Errorf("destinationURL = %q, want updated value", lnx.DestinationURL)
 		}
 	})
 
 	t.Run("non-existent ID", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "PUT", "/api/cards/999999", map[string]string{
+		w := doJSON(t, mux, "PUT", "/api/linx/999999", map[string]string{
 			"shortName": "x", "destinationURL": "https://x.com", "type": "link",
 		})
 		if w.Code != 404 {
@@ -712,7 +712,7 @@ func TestAPI_CardsUpdate(t *testing.T) {
 
 	t.Run("invalid ID", func(t *testing.T) {
 		resetDB(t)
-		w := doJSON(t, mux, "PUT", "/api/cards/abc", map[string]string{
+		w := doJSON(t, mux, "PUT", "/api/linx/abc", map[string]string{
 			"shortName": "x", "type": "link",
 		})
 		if w.Code != 400 {
@@ -724,7 +724,7 @@ func TestAPI_CardsUpdate(t *testing.T) {
 		resetDB(t)
 		ids := seedTestData(t)
 		id := ids["github"]
-		w := doJSON(t, mux, "PUT", fmt.Sprintf("/api/cards/%d", id), map[string]string{
+		w := doJSON(t, mux, "PUT", fmt.Sprintf("/api/linx/%d", id), map[string]string{
 			"shortName": "github", "destinationURL": "/github", "type": "link",
 		})
 		if w.Code != 400 {
@@ -733,14 +733,14 @@ func TestAPI_CardsUpdate(t *testing.T) {
 	})
 }
 
-func TestAPI_CardsDelete(t *testing.T) {
+func TestAPI_LinxDelete(t *testing.T) {
 	mux := serveHandler()
 
 	t.Run("valid delete", func(t *testing.T) {
 		resetDB(t)
 		ids := seedTestData(t)
 		id := ids["google"]
-		w := doRequest(t, mux, "DELETE", fmt.Sprintf("/api/cards/%d", id))
+		w := doRequest(t, mux, "DELETE", fmt.Sprintf("/api/linx/%d", id))
 		if w.Code != 200 {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
@@ -753,7 +753,7 @@ func TestAPI_CardsDelete(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		resetDB(t)
-		w := doRequest(t, mux, "DELETE", "/api/cards/999999")
+		w := doRequest(t, mux, "DELETE", "/api/linx/999999")
 		if w.Code != 404 {
 			t.Errorf("status = %d, want 404", w.Code)
 		}
@@ -761,7 +761,7 @@ func TestAPI_CardsDelete(t *testing.T) {
 
 	t.Run("invalid ID", func(t *testing.T) {
 		resetDB(t)
-		w := doRequest(t, mux, "DELETE", "/api/cards/abc")
+		w := doRequest(t, mux, "DELETE", "/api/linx/abc")
 		if w.Code != 400 {
 			t.Errorf("status = %d, want 400", w.Code)
 		}
@@ -777,10 +777,10 @@ func TestAPI_DBExportImport(t *testing.T) {
 		if w.Code != 200 {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		if len(cards) != 0 {
-			t.Errorf("expected empty, got %d", len(cards))
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		if len(items) != 0 {
+			t.Errorf("expected empty, got %d", len(items))
 		}
 	})
 
@@ -788,10 +788,10 @@ func TestAPI_DBExportImport(t *testing.T) {
 		resetDB(t)
 		seedTestData(t)
 		w := doRequest(t, mux, "GET", "/api/db")
-		var cards []Card
-		json.Unmarshal(w.Body.Bytes(), &cards)
-		if len(cards) != len(testCards()) {
-			t.Errorf("got %d, want %d", len(cards), len(testCards()))
+		var items []Linx
+		json.Unmarshal(w.Body.Bytes(), &items)
+		if len(items) != len(testLinx()) {
+			t.Errorf("got %d, want %d", len(items), len(testLinx()))
 		}
 	})
 
@@ -817,7 +817,7 @@ func TestAPI_DBExportImport(t *testing.T) {
 
 	t.Run("PUT import skips existing", func(t *testing.T) {
 		resetDB(t)
-		db.Save(&Card{Type: CardTypeLink, ShortName: "existing", DestinationURL: "https://existing.com", Owner: "test@example.com"})
+		db.Save(&Linx{Type: LinxTypeLink, ShortName: "existing", DestinationURL: "https://existing.com", Owner: "test@example.com"})
 		imports := []map[string]string{
 			{"type": "link", "shortName": "existing", "destinationURL": "https://new.com"},
 			{"type": "link", "shortName": "brand-new", "destinationURL": "https://brandnew.com"},
@@ -982,7 +982,7 @@ func TestResolve_DetailPage(t *testing.T) {
 	})
 }
 
-func TestResolve_PersonCard(t *testing.T) {
+func TestResolve_PersonLinx(t *testing.T) {
 	resetDB(t)
 	seedTestData(t)
 	mux := serveHandler()
@@ -1059,10 +1059,10 @@ func TestResolve_TemplateURL(t *testing.T) {
 func TestResolve_MaxDepth(t *testing.T) {
 	resetDB(t)
 	// Create a chain: d1 → /d2, d2 → /d3, d3 → /d4, d4 → https://end.com
-	db.Save(&Card{Type: CardTypeLink, ShortName: "d1", DestinationURL: "/d2", Owner: "test@example.com"})
-	db.Save(&Card{Type: CardTypeLink, ShortName: "d2", DestinationURL: "/d3", Owner: "test@example.com"})
-	db.Save(&Card{Type: CardTypeLink, ShortName: "d3", DestinationURL: "/d4", Owner: "test@example.com"})
-	db.Save(&Card{Type: CardTypeLink, ShortName: "d4", DestinationURL: "https://end.com", Owner: "test@example.com"})
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "d1", DestinationURL: "/d2", Owner: "test@example.com"})
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "d2", DestinationURL: "/d3", Owner: "test@example.com"})
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "d3", DestinationURL: "/d4", Owner: "test@example.com"})
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "d4", DestinationURL: "https://end.com", Owner: "test@example.com"})
 
 	old := *maxResolveDepth
 	*maxResolveDepth = 1
@@ -1147,12 +1147,12 @@ func TestServe_Export(t *testing.T) {
 	if !strings.Contains(cd, "attachment") {
 		t.Errorf("Content-Disposition = %q, want attachment", cd)
 	}
-	var cards []Card
-	if err := json.Unmarshal(w.Body.Bytes(), &cards); err != nil {
+	var items []Linx
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(cards) != len(testCards()) {
-		t.Errorf("exported %d cards, want %d", len(cards), len(testCards()))
+	if len(items) != len(testLinx()) {
+		t.Errorf("exported %d linx, want %d", len(items), len(testLinx()))
 	}
 }
 

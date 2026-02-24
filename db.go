@@ -12,16 +12,16 @@ import (
 //go:embed schema.sql
 var sqlSchema string
 
-// Card type constants.
+// Linx type constants.
 const (
-	CardTypeLink     = "link"
-	CardTypeEmployee = "employee"
-	CardTypeCustomer = "customer"
-	CardTypeVendor   = "vendor"
+	LinxTypeLink     = "link"
+	LinxTypeEmployee = "employee"
+	LinxTypeCustomer = "customer"
+	LinxTypeVendor   = "vendor"
 )
 
-// Card represents any item in GoLinx: a link, employee, customer, or vendor.
-type Card struct {
+// Linx represents any item in GoLinx: a link, employee, customer, or vendor.
+type Linx struct {
 	ID             int64  `json:"id"`
 	Type           string `json:"type"`
 	ShortName      string `json:"shortName"`
@@ -44,15 +44,15 @@ type Card struct {
 	DateCreated    int64  `json:"dateCreated"`
 }
 
-// IsPersonType returns true for card types that use the person form and profile page.
-func (c *Card) IsPersonType() bool {
-	return c.Type == CardTypeEmployee || c.Type == CardTypeCustomer || c.Type == CardTypeVendor
+// IsPersonType returns true for linx types that use the person form and profile page.
+func (c *Linx) IsPersonType() bool {
+	return c.Type == LinxTypeEmployee || c.Type == LinxTypeCustomer || c.Type == LinxTypeVendor
 }
 
-const cardColumns = `ID, Type, ShortName, DestinationURL, Description, Owner, LastClicked, ClickCount, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, AvatarMime, Color, DateCreated`
+const linxColumns = `ID, Type, ShortName, DestinationURL, Description, Owner, LastClicked, ClickCount, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, AvatarMime, Color, DateCreated`
 
-func scanCard(scanner interface{ Scan(dest ...any) error }) (*Card, error) {
-	c := new(Card)
+func scanLinx(scanner interface{ Scan(dest ...any) error }) (*Linx, error) {
+	c := new(Linx)
 	err := scanner.Scan(&c.ID, &c.Type, &c.ShortName, &c.DestinationURL,
 		&c.Description, &c.Owner, &c.LastClicked, &c.ClickCount,
 		&c.FirstName, &c.LastName, &c.Title, &c.Email, &c.Phone,
@@ -84,24 +84,31 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 			return nil, err
 		}
 	}
+	// Migrate: rename Cards → Linx if the old table name exists.
+	var oldTable string
+	_ = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='Cards'").Scan(&oldTable)
+	if oldTable == "Cards" {
+		db.Exec("ALTER TABLE Cards RENAME TO Linx")
+		db.Exec("DROP INDEX IF EXISTS idx_cards_shortname_lower")
+	}
 	if _, err = db.Exec(sqlSchema); err != nil {
 		return nil, err
 	}
 	// Migrate: add columns that may not exist in older databases.
 	for _, col := range []string{
-		"ALTER TABLE Cards ADD COLUMN Color TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE Linx ADD COLUMN Color TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(col) // ignore "duplicate column" errors
 	}
 	return &SQLiteDB{db: db}, nil
 }
 
-// LoadAll returns all cards, optionally filtered by type, ordered by ShortName.
-func (s *SQLiteDB) LoadAll(filterType string) ([]*Card, error) {
+// LoadAll returns all linx, optionally filtered by type, ordered by ShortName.
+func (s *SQLiteDB) LoadAll(filterType string) ([]*Linx, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := "SELECT " + cardColumns + " FROM Cards"
+	query := "SELECT " + linxColumns + " FROM Linx"
 	var args []any
 	if filterType != "" {
 		query += " WHERE Type = ?"
@@ -115,23 +122,23 @@ func (s *SQLiteDB) LoadAll(filterType string) ([]*Card, error) {
 	}
 	defer rows.Close()
 
-	var cards []*Card
+	var items []*Linx
 	for rows.Next() {
-		c, err := scanCard(rows)
+		c, err := scanLinx(rows)
 		if err != nil {
 			return nil, err
 		}
-		cards = append(cards, c)
+		items = append(items, c)
 	}
-	return cards, rows.Err()
+	return items, rows.Err()
 }
 
-// LoadByID returns a single card by ID.
-func (s *SQLiteDB) LoadByID(id int64) (*Card, error) {
+// LoadByID returns a single linx by ID.
+func (s *SQLiteDB) LoadByID(id int64) (*Linx, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	c, err := scanCard(s.db.QueryRow("SELECT "+cardColumns+" FROM Cards WHERE ID = ?", id))
+	c, err := scanLinx(s.db.QueryRow("SELECT "+linxColumns+" FROM Linx WHERE ID = ?", id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fs.ErrNotExist
@@ -141,12 +148,12 @@ func (s *SQLiteDB) LoadByID(id int64) (*Card, error) {
 	return c, nil
 }
 
-// LoadByShortName returns a single card by short name (case-insensitive).
-func (s *SQLiteDB) LoadByShortName(name string) (*Card, error) {
+// LoadByShortName returns a single linx by short name (case-insensitive).
+func (s *SQLiteDB) LoadByShortName(name string) (*Linx, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	c, err := scanCard(s.db.QueryRow("SELECT "+cardColumns+" FROM Cards WHERE LOWER(ShortName) = LOWER(?)", name))
+	c, err := scanLinx(s.db.QueryRow("SELECT "+linxColumns+" FROM Linx WHERE LOWER(ShortName) = LOWER(?)", name))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fs.ErrNotExist
@@ -156,23 +163,23 @@ func (s *SQLiteDB) LoadByShortName(name string) (*Card, error) {
 	return c, nil
 }
 
-// Save inserts a new card and returns its ID.
-func (s *SQLiteDB) Save(card *Card) (int64, error) {
+// Save inserts a new linx and returns its ID.
+func (s *SQLiteDB) Save(lnx *Linx) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.insertCard(card)
+	return s.insertLinx(lnx)
 }
 
-func (s *SQLiteDB) insertCard(card *Card) (int64, error) {
-	if card.Type == "" {
-		card.Type = CardTypeLink
+func (s *SQLiteDB) insertLinx(lnx *Linx) (int64, error) {
+	if lnx.Type == "" {
+		lnx.Type = LinxTypeLink
 	}
 	now := time.Now().Unix()
 	result, err := s.db.Exec(
-		`INSERT INTO Cards (Type, ShortName, DestinationURL, Description, Owner, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, Color, DateCreated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		card.Type, card.ShortName, card.DestinationURL, card.Description, card.Owner,
-		card.FirstName, card.LastName, card.Title, card.Email, card.Phone,
-		card.WebLink, card.CalLink, card.XLink, card.LinkedInLink, card.Color, now,
+		`INSERT INTO Linx (Type, ShortName, DestinationURL, Description, Owner, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, Color, DateCreated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		lnx.Type, lnx.ShortName, lnx.DestinationURL, lnx.Description, lnx.Owner,
+		lnx.FirstName, lnx.LastName, lnx.Title, lnx.Email, lnx.Phone,
+		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, now,
 	)
 	if err != nil {
 		return 0, err
@@ -180,16 +187,16 @@ func (s *SQLiteDB) insertCard(card *Card) (int64, error) {
 	return result.LastInsertId()
 }
 
-// Update modifies an existing card by ID.
-func (s *SQLiteDB) Update(card *Card) error {
+// Update modifies an existing linx by ID.
+func (s *SQLiteDB) Update(lnx *Linx) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	result, err := s.db.Exec(
-		`UPDATE Cards SET Type=?, ShortName=?, DestinationURL=?, Description=?, Owner=?, FirstName=?, LastName=?, Title=?, Email=?, Phone=?, WebLink=?, CalLink=?, XLink=?, LinkedInLink=?, Color=? WHERE ID=?`,
-		card.Type, card.ShortName, card.DestinationURL, card.Description, card.Owner,
-		card.FirstName, card.LastName, card.Title, card.Email, card.Phone,
-		card.WebLink, card.CalLink, card.XLink, card.LinkedInLink, card.Color, card.ID,
+		`UPDATE Linx SET Type=?, ShortName=?, DestinationURL=?, Description=?, Owner=?, FirstName=?, LastName=?, Title=?, Email=?, Phone=?, WebLink=?, CalLink=?, XLink=?, LinkedInLink=?, Color=? WHERE ID=?`,
+		lnx.Type, lnx.ShortName, lnx.DestinationURL, lnx.Description, lnx.Owner,
+		lnx.FirstName, lnx.LastName, lnx.Title, lnx.Email, lnx.Phone,
+		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, lnx.ID,
 	)
 	if err != nil {
 		return err
@@ -204,12 +211,12 @@ func (s *SQLiteDB) Update(card *Card) error {
 	return nil
 }
 
-// Delete removes a card by ID.
+// Delete removes a linx by ID.
 func (s *SQLiteDB) Delete(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result, err := s.db.Exec("DELETE FROM Cards WHERE ID = ?", id)
+	result, err := s.db.Exec("DELETE FROM Linx WHERE ID = ?", id)
 	if err != nil {
 		return err
 	}
@@ -229,7 +236,7 @@ func (s *SQLiteDB) IncrementClick(shortName string) error {
 	defer s.mu.Unlock()
 
 	now := time.Now().Unix()
-	_, err := s.db.Exec("UPDATE Cards SET ClickCount = ClickCount + 1, LastClicked = ? WHERE LOWER(ShortName) = LOWER(?)", now, shortName)
+	_, err := s.db.Exec("UPDATE Linx SET ClickCount = ClickCount + 1, LastClicked = ? WHERE LOWER(ShortName) = LOWER(?)", now, shortName)
 	return err
 }
 
@@ -255,12 +262,12 @@ func (s *SQLiteDB) PutSetting(username, key, value string) error {
 	return err
 }
 
-// CardCount returns the total number of cards, optionally filtered by type.
-func (s *SQLiteDB) CardCount(filterType string) (int, error) {
+// LinxCount returns the total number of linx, optionally filtered by type.
+func (s *SQLiteDB) LinxCount(filterType string) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := "SELECT COUNT(*) FROM Cards"
+	query := "SELECT COUNT(*) FROM Linx"
 	var args []any
 	if filterType != "" {
 		query += " WHERE Type = ?"
@@ -271,12 +278,12 @@ func (s *SQLiteDB) CardCount(filterType string) (int, error) {
 	return count, err
 }
 
-// SaveAvatar updates the avatar for a card.
+// SaveAvatar updates the avatar for a linx.
 func (s *SQLiteDB) SaveAvatar(id int64, data []byte, mime string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result, err := s.db.Exec("UPDATE Cards SET AvatarData = ?, AvatarMime = ? WHERE ID = ?", data, mime, id)
+	result, err := s.db.Exec("UPDATE Linx SET AvatarData = ?, AvatarMime = ? WHERE ID = ?", data, mime, id)
 	if err != nil {
 		return err
 	}
@@ -290,14 +297,14 @@ func (s *SQLiteDB) SaveAvatar(id int64, data []byte, mime string) error {
 	return nil
 }
 
-// LoadAvatar returns the avatar data and MIME type for a card.
+// LoadAvatar returns the avatar data and MIME type for a linx.
 func (s *SQLiteDB) LoadAvatar(id int64) ([]byte, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var data []byte
 	var mime string
-	err := s.db.QueryRow("SELECT AvatarData, AvatarMime FROM Cards WHERE ID = ?", id).Scan(&data, &mime)
+	err := s.db.QueryRow("SELECT AvatarData, AvatarMime FROM Linx WHERE ID = ?", id).Scan(&data, &mime)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", fs.ErrNotExist

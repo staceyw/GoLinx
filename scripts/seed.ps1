@@ -1,8 +1,8 @@
-# Seed GoLinx with cards from a JSON file.
+# Seed GoLinx with linx from a JSON file.
 # Usage:
 #   Dev mode:  .\scripts\seed.ps1 http://localhost:8080
 #   Tailnet:   .\scripts\seed.ps1 https://go.example.ts.net
-#   Custom:    .\scripts\seed.ps1 http://localhost:8080 .\my-cards.json
+#   Custom:    .\scripts\seed.ps1 http://localhost:8080 .\my-linx.json
 
 param(
     [Parameter(Mandatory=$true, Position=0)]
@@ -24,14 +24,14 @@ if (!(Test-Path $File)) {
     exit 1
 }
 
-$cards = Get-Content $File -Raw | ConvertFrom-Json
-$API = "$Base/api/cards"
+$linx = Get-Content $File -Raw | ConvertFrom-Json
+$API = "$Base/api/linx"
 
-Write-Host "Seeding $($cards.Count) cards from $(Split-Path -Leaf $File) to $Base ..."
+Write-Host "Seeding $($linx.Count) linx from $(Split-Path -Leaf $File) to $Base ..."
 
-foreach ($card in $cards) {
-    $json = $card | ConvertTo-Json -Compress
-    $name = $card.shortName
+foreach ($lnx in $linx) {
+    $json = $lnx | ConvertTo-Json -Compress
+    $name = $lnx.shortName
     try {
         Invoke-RestMethod -Uri $API -Method Post -ContentType "application/json" -Body $json -ErrorAction Stop | Out-Null
         Write-Host "  + $name"
@@ -41,4 +41,4 @@ foreach ($card in $cards) {
 }
 
 Write-Host ""
-Write-Host "Done. Refresh browser to see cards."
+Write-Host "Done. Refresh browser to see linx."

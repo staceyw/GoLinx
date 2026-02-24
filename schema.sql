@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS Cards (
+CREATE TABLE IF NOT EXISTS Linx (
     ID              INTEGER PRIMARY KEY AUTOINCREMENT,
     Type            TEXT    NOT NULL DEFAULT 'link',
     ShortName       TEXT    UNIQUE NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS Cards (
     DateCreated     INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_cards_shortname_lower ON Cards (LOWER(ShortName));
+CREATE INDEX IF NOT EXISTS idx_linx_shortname_lower ON Linx (LOWER(ShortName));
 
 CREATE TABLE IF NOT EXISTS Settings (
     username TEXT NOT NULL DEFAULT 'default',
