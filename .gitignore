@@ -1,0 +1,11 @@
+/dev/
+/dist/
+/Go-Link/
+/Go-Term/
+.claude/
+/tmp
+*.db
+*.db-shm
+*.db-wal
+*.exe
+*.exe~
