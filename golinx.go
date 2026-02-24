@@ -125,7 +125,7 @@ var currentUser = func(r *http.Request) (string, error) {
 // In local mode (no Tailscale), everyone can edit. On Tailscale, only the
 // owner or claimants of unowned linx can edit.
 func canEdit(r *http.Request, linxOwner string) bool {
-	if localClient == nil {
+	if isLocalhost(r) {
 		return true
 	}
 	if linxOwner == "" {
@@ -144,6 +144,55 @@ func canEdit(r *http.Request, linxOwner string) bool {
 		}
 	}
 	return false
+}
+
+// isLocalhost returns true if the request originates from the loopback interface.
+func isLocalhost(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return host == "127.0.0.1" || host == "::1"
+}
+
+// isLocalUser returns true for non-localhost requests in local mode (no Tailscale).
+func isLocalUser(r *http.Request) bool {
+	return localClient == nil && !isLocalhost(r)
+}
+
+// hasUserPerm checks if the given permission is granted by the user-perms config.
+func hasUserPerm(perm string) bool {
+	for _, p := range userPerms {
+		if p == "*" || strings.EqualFold(p, perm) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTags cleans a comma-separated tag string: lowercase, no spaces
+// (replaced with dashes), max 30 chars per tag, max 10 tags, deduped.
+func normalizeTags(raw string) string {
+	parts := strings.Split(raw, ",")
+	seen := make(map[string]bool)
+	var tags []string
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		t = strings.ToLower(t)
+		t = strings.Join(strings.Fields(t), "-")
+		if len(t) > 30 {
+			t = t[:30]
+		}
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		tags = append(tags, t)
+		if len(tags) >= 10 {
+			break
+		}
+	}
+	return strings.Join(tags, ", ")
 }
 
 var reShortName = regexp.MustCompile(`^\w[\w\-.]*$`)
@@ -361,10 +410,12 @@ type config struct {
 	TailscaleHost   string   `toml:"ts-hostname"`
 	TailscaleDir    string   `toml:"ts-dir"`
 	MaxResolveDepth int      `toml:"max-resolve-depth"`
-	Admins          []string `toml:"admins"`
+	Admins          []string `toml:"ts-admins"`
+	UserPerms       []string `toml:"user-perms"`
 }
 
 var adminEmails []string
+var userPerms = []string{"*"} // default: full access for local users
 
 func isAdmin(login string) bool {
 	for _, a := range adminEmails {
@@ -556,6 +607,9 @@ func Run() error {
 	}
 	if hasConfig {
 		adminEmails = cfg.Admins
+		if cfg.UserPerms != nil {
+			userPerms = cfg.UserPerms
+		}
 	}
 
 	// Handle --import: open DB, import, exit.
@@ -951,6 +1005,10 @@ func apiLinxList(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
+	if isLocalUser(r) && !hasUserPerm("add") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
 	var payload struct {
 		Type           string `json:"type"`
 		ShortName      string `json:"shortName"`
@@ -967,6 +1025,7 @@ func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 		XLink        string `json:"xLink"`
 		LinkedInLink string `json:"linkedInLink"`
 		Color        string `json:"color"`
+		Tags         string `json:"tags"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1001,6 +1060,7 @@ func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 	payload.XLink = strings.TrimSpace(payload.XLink)
 	payload.LinkedInLink = strings.TrimSpace(payload.LinkedInLink)
 	payload.Color = strings.TrimSpace(payload.Color)
+	payload.Tags = normalizeTags(payload.Tags)
 
 	if !validLinxTypes[payload.Type] {
 		http.Error(w, "invalid type", http.StatusBadRequest)
@@ -1041,7 +1101,7 @@ func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 		FirstName: payload.FirstName, LastName: payload.LastName, Title: payload.Title,
 		Email: payload.Email, Phone: payload.Phone,
 		WebLink: payload.WebLink, CalLink: payload.CalLink, XLink: payload.XLink, LinkedInLink: payload.LinkedInLink,
-		Color: payload.Color,
+		Color: payload.Color, Tags: payload.Tags,
 	}
 	id, err := db.Save(lnx)
 	if err != nil {
@@ -1057,6 +1117,10 @@ func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
+	if isLocalUser(r) && !hasUserPerm("update") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1088,6 +1152,7 @@ func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 		XLink          string `json:"xLink"`
 		LinkedInLink   string `json:"linkedInLink"`
 		Color          string `json:"color"`
+		Tags           string `json:"tags"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1132,6 +1197,7 @@ func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 	payload.XLink = strings.TrimSpace(payload.XLink)
 	payload.LinkedInLink = strings.TrimSpace(payload.LinkedInLink)
 	payload.Color = strings.TrimSpace(payload.Color)
+	payload.Tags = normalizeTags(payload.Tags)
 
 	if payload.Type == LinxTypeLink {
 		if payload.DestinationURL == "" {
@@ -1159,7 +1225,7 @@ func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 		FirstName: payload.FirstName, LastName: payload.LastName, Title: payload.Title,
 		Email: payload.Email, Phone: payload.Phone,
 		WebLink: payload.WebLink, CalLink: payload.CalLink, XLink: payload.XLink, LinkedInLink: payload.LinkedInLink,
-		Color: payload.Color,
+		Color: payload.Color, Tags: payload.Tags,
 	}
 	if err := db.Update(lnx); err != nil {
 		if err == fs.ErrNotExist {
@@ -1178,6 +1244,10 @@ func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiLinxDelete(w http.ResponseWriter, r *http.Request) {
+	if isLocalUser(r) && !hasUserPerm("delete") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1254,10 +1324,19 @@ func apiWhoAmI(w http.ResponseWriter, r *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"login": login, "hostname": host, "tsMode": localClient != nil, "isAdmin": isAdmin(login)})
+	localhost := isLocalhost(r)
+	perms := []string{"add", "update", "delete"}
+	if isLocalUser(r) {
+		perms = userPerms
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"login": login, "hostname": host, "tsMode": localClient != nil, "isAdmin": isAdmin(login) || localhost, "localhostAdmin": localhost, "perms": perms})
 }
 
 func apiLinxAvatarUpload(w http.ResponseWriter, r *http.Request) {
+	if isLocalUser(r) && !hasUserPerm("update") {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
@@ -1977,6 +2056,11 @@ func serveWhoAmISSE(w http.ResponseWriter, r *http.Request) {
 		sendSSE(w, flusher, "status", "WHOAMI (local mode)")
 		sendSSE(w, flusher, "info", "Identity:  "+identity)
 		sendSSE(w, flusher, "info", "Remote:    "+r.RemoteAddr)
+		if isLocalhost(r) {
+			sendSSE(w, flusher, "info", "Admin:     yes (localhost)")
+		} else {
+			sendSSE(w, flusher, "info", "Perms:     "+strings.Join(userPerms, ", "))
+		}
 		sendSSE(w, flusher, "info", "")
 		sendSSE(w, flusher, "info", "Full WhoIs requires a Tailscale listener.")
 		sendSSE(w, flusher, "done", "complete")
@@ -2484,6 +2568,22 @@ body { display: flex; flex-direction: column; height: 100vh; }
   background: var(--btn-bg); color: var(--btn-text); padding: 2px 8px;
   border-radius: 10px; font-size: 0.68rem; font-weight: 600;
 }
+.linx-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag-badge {
+  font-size: 0.65rem; padding: 1px 6px; border-radius: 8px;
+  background: var(--input-border); color: var(--panel-text); opacity: 0.8;
+}
+.tag-autocomplete {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 20;
+  background: var(--panel-bg); border: 1px solid var(--input-border);
+  border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  max-height: 160px; overflow-y: auto;
+}
+.tag-ac-item {
+  padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+  color: var(--panel-text);
+}
+.tag-ac-item:hover { background: var(--input-border); }
 
 /* List view mode */
 #link-grid.list-mode { grid-template-columns: 1fr; min-width: 0; gap: 4px; }
@@ -2790,6 +2890,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
           <div class="icon-input"><span class="icon-prefix"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg></span><input type="text" id="newLinkedInLink" placeholder="https://linkedin.com/in/..." spellcheck="false" /></div>
         </div>
       </div>
+      <div class="form-row"><label>Tags</label><input type="text" id="newTags" placeholder="tag1, tag2, ..." spellcheck="false" autocomplete="off" /></div>
     </div>
     <div class="modal-actions">
       <button class="mbtn-cancel" onclick="closeNewLinxModal()">Cancel</button>
@@ -2848,6 +2949,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
           <div class="icon-input"><span class="icon-prefix"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg></span><input type="text" id="editLinkedInLink" spellcheck="false" /></div>
         </div>
       </div>
+      <div class="form-row"><label>Tags</label><input type="text" id="editTags" placeholder="tag1, tag2, ..." spellcheck="false" autocomplete="off" /></div>
       <div class="stat-row">
         <div class="stat-item"><span class="stat-label">Created</span><span class="stat-value" id="editCreated">-</span></div>
         <div class="stat-item"><span class="stat-label">Last Clicked</span><span class="stat-value" id="editLastClicked">-</span></div>
@@ -3102,9 +3204,9 @@ function sortLinx(arr) {
 
 function itemSearchText(item) {
   if (item.type !== 'link') {
-    return [item.shortName, item.firstName, item.lastName, item.email].join(' ').toLowerCase();
+    return [item.shortName, item.firstName, item.lastName, item.email, item.tags].join(' ').toLowerCase();
   }
-  return [item.shortName, item.destinationURL, item.description, item.owner].join(' ').toLowerCase();
+  return [item.shortName, item.destinationURL, item.description, item.owner, item.tags].join(' ').toLowerCase();
 }
 
 var typeAliases = {e:'employee',c:'customer',v:'vendor',l:'link'};
@@ -3122,6 +3224,21 @@ function filterLinx() {
   var m = q.match(/^:(\w+)\s*(.*)/);
   if (m) {
     var alias = m[1].toLowerCase();
+    if (alias === 't') {
+      var tagTerms = m[2].split(',');
+      var results = [];
+      for (var i = 0; i < allLinx.length; i++) {
+        var itemTags = (allLinx[i].tags || '').toLowerCase().split(',');
+        for (var j = 0; j < itemTags.length; j++) itemTags[j] = itemTags[j].trim();
+        for (var ti = 0; ti < tagTerms.length; ti++) {
+          var term = tagTerms[ti].trim().toLowerCase();
+          if (term && itemTags.indexOf(term) >= 0) { results.push(allLinx[i]); break; }
+        }
+      }
+      filteredLinx = sortLinx(results);
+      renderGrid();
+      return;
+    }
     if (typeAliases[alias]) {
       typeFilter = typeAliases[alias];
       ql = m[2].trim();
@@ -3191,8 +3308,91 @@ function renderPersonLinx(c) {
     + (c.email ? '<div class="profile-email">' + escHtml(c.email) + '</div>' : '')
     + '<div class="profile-short">/' + escHtml(c.shortName) + '</div>'
     + '</div></div>'
+    + renderTags(c.tags)
     + '<div class="linx-meta"><span></span><span class="linx-badge">' + escHtml(typeBadge(c.type)) + '</span></div>'
     + '</div>';
+}
+
+function renderTags(tags) {
+  if (!tags) return '';
+  var parts = tags.split(',');
+  var h = '<div class="linx-tags">';
+  for (var i = 0; i < parts.length; i++) {
+    var t = parts[i].trim();
+    if (t) h += '<span class="tag-badge">' + escHtml(t) + '</span>';
+  }
+  return h + '</div>';
+}
+
+// Tag autocomplete
+function getAllTags() {
+  var tagSet = {};
+  for (var i = 0; i < allLinx.length; i++) {
+    var tags = allLinx[i].tags;
+    if (!tags) continue;
+    var parts = tags.split(',');
+    for (var j = 0; j < parts.length; j++) {
+      var t = parts[j].trim().toLowerCase();
+      if (t) tagSet[t] = true;
+    }
+  }
+  return Object.keys(tagSet).sort();
+}
+
+function setupTagAutocomplete(inputId) {
+  var input = document.getElementById(inputId);
+  if (!input) return;
+  var wrap = input.parentNode;
+  wrap.style.position = 'relative';
+  var dd = document.createElement('div');
+  dd.className = 'tag-autocomplete hidden';
+  wrap.appendChild(dd);
+
+  function currentTag() {
+    var val = input.value;
+    var ci = input.selectionStart || val.length;
+    var start = val.lastIndexOf(',', ci - 1) + 1;
+    return { text: val.substring(start).trimStart().toLowerCase(), start: start, ci: ci };
+  }
+
+  function update() {
+    var ct = currentTag();
+    if (!ct.text) { dd.classList.add('hidden'); return; }
+    var existing = input.value.toLowerCase().split(',');
+    for (var i = 0; i < existing.length; i++) existing[i] = existing[i].trim();
+    var all = getAllTags();
+    var matches = [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].indexOf(ct.text) !== -1 && existing.indexOf(all[i]) === -1) {
+        matches.push(all[i]);
+      }
+    }
+    if (matches.length === 0) { dd.classList.add('hidden'); return; }
+    var h = '';
+    for (var i = 0; i < matches.length && i < 8; i++) {
+      h += '<div class="tag-ac-item" data-tag="' + escHtml(matches[i]) + '">' + escHtml(matches[i]) + '</div>';
+    }
+    dd.innerHTML = h;
+    dd.classList.remove('hidden');
+  }
+
+  function pickTag(tag) {
+    var ct = currentTag();
+    var before = input.value.substring(0, ct.start);
+    var afterComma = input.value.indexOf(',', ct.ci);
+    var after = afterComma >= 0 ? input.value.substring(afterComma) : '';
+    input.value = before + (before && !before.endsWith(',') ? '' : '') + tag + after;
+    dd.classList.add('hidden');
+    input.focus();
+  }
+
+  input.addEventListener('input', update);
+  input.addEventListener('focus', update);
+  input.addEventListener('blur', function() { setTimeout(function(){ dd.classList.add('hidden'); }, 150); });
+  dd.addEventListener('mousedown', function(e) {
+    var item = e.target.closest('.tag-ac-item');
+    if (item) { e.preventDefault(); pickTag(item.getAttribute('data-tag')); }
+  });
 }
 
 function renderGrid() {
@@ -3221,6 +3421,7 @@ function renderGrid() {
     if (item.description) {
       html += '<div class="linx-desc">' + escHtml(item.description) + '</div>';
     }
+    html += renderTags(item.tags);
     html += '<div class="linx-meta">';
     if (item.owner) {
       html += '<span class="linx-owner">' + escHtml(item.owner) + '</span>';
@@ -3295,8 +3496,9 @@ function showCtxMenu(event, linxId) {
   var editable = ctxTarget && userCanEdit(ctxTarget);
   document.getElementById('ctxView').style.display = editable ? 'none' : '';
   document.getElementById('ctxEdit').style.display = editable ? '' : 'none';
-  document.getElementById('ctxSep').style.display = editable ? '' : 'none';
-  document.getElementById('ctxDelete').style.display = editable ? '' : 'none';
+  var canDel = editable && hasPerm('delete');
+  document.getElementById('ctxSep').style.display = canDel ? '' : 'none';
+  document.getElementById('ctxDelete').style.display = canDel ? '' : 'none';
   var menu = document.getElementById('ctx-menu');
   menu.style.left = event.clientX + 'px';
   menu.style.top = event.clientY + 'px';
@@ -3388,6 +3590,7 @@ function showNewLinxModal() {
   document.getElementById('newCalLink').value = '';
   document.getElementById('newXLink').value = '';
   document.getElementById('newLinkedInLink').value = '';
+  document.getElementById('newTags').value = '';
   pickColor('new', '');
   toggleNewLinxType();
   document.getElementById('newOverlay').classList.remove('hidden');
@@ -3481,6 +3684,7 @@ function saveNewLinx() {
       color: color
     };
   }
+  data.tags = document.getElementById('newTags').value.trim();
 
   fetch('/api/linx', {
     method: 'POST',
@@ -3533,6 +3737,7 @@ function showEditModal(lnx, readonly) {
     document.getElementById('editAvatarFile').value = '';
   }
   pickColor('edit', lnx.color || '');
+  document.getElementById('editTags').value = lnx.tags || '';
   document.getElementById('editCreated').textContent = formatTime(lnx.dateCreated);
   document.getElementById('editLastClicked').textContent = formatTime(lnx.lastClicked);
   document.getElementById('editClicks').textContent = String(lnx.clickCount || 0);
@@ -3574,7 +3779,7 @@ function closeEditModal() {
 function saveEditLinx() {
   if (!editingLinxId) return;
   var shortName = document.getElementById('editShortName').value.trim();
-  var data = { type: editingLinxType, shortName: shortName, color: document.getElementById('editColor').value };
+  var data = { type: editingLinxType, shortName: shortName, color: document.getElementById('editColor').value, tags: document.getElementById('editTags').value.trim() };
 
   if (editingLinxType === 'link') {
     data.destinationURL = document.getElementById('editDestURL').value.trim();
@@ -3782,7 +3987,14 @@ var _currentUserLogin = '';
 var _tsMode = false;
 var _isAdmin = false;
 var _adminMode = false;
+var _localhostAdmin = false;
+var _userPerms = ['add','update','delete'];
+function hasPerm(p) {
+  return _userPerms.indexOf('*') >= 0 || _userPerms.indexOf(p) >= 0;
+}
 function userCanEdit(lnx) {
+  if (_localhostAdmin) return true;
+  if (!hasPerm('update')) return false;
   if (!_tsMode) return true;
   if (_isAdmin && _adminMode) return true;
   if (!lnx.owner) return true;
@@ -3803,7 +4015,10 @@ function toggleAdminMode(on) {
   }).then(function(data) {
     if (data && data.login) _currentUserLogin = data.login;
     if (data && data.tsMode) _tsMode = true;
-    if (data && data.isAdmin) {
+    if (data && data.localhostAdmin) _localhostAdmin = true;
+    if (data && data.perms) _userPerms = data.perms;
+    if (!hasPerm('add')) document.getElementById('addBtn').style.display = 'none';
+    if (data && data.isAdmin && !data.localhostAdmin) {
       _isAdmin = true;
       document.getElementById('adminToggle').classList.remove('hidden');
       // Restore admin mode setting
@@ -3853,6 +4068,9 @@ function toggleAdminMode(on) {
       }
     }
   }).catch(function(){});
+
+  setupTagAutocomplete('newTags');
+  setupTagAutocomplete('editTags');
 
   loadLinx();
   setTimeout(function() { _restoring = false; }, 500);

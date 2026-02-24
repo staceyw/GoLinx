@@ -1,6 +1,6 @@
 # GoLinx
 
-URL shortener and people directory in a single Go binary. Short links redirect and people linx get automatic profile pages. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners. Inspired by Tailscale's [golink](https://github.com/tailscale/golink) with theme support, enhanced UX, and additional features.
+URL shortener and people directory in a single Go binary. Short links redirect and people linx get automatic profile pages. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners. Inspired by Tailscale's [golink](https://github.com/tailscale/golink) and others, but with enhanced UX and features.
 
 ![screenshot](docs/screenshot.svg)
 
@@ -72,7 +72,8 @@ ts-hostname = "go"
 verbose = false
 max-resolve-depth = 5
 # ts-dir = "/data/tsnet"  # default: OS config dir (e.g. ~/.config/tsnet-golinx)
-# admins = ["alice@example.com"]  # Tailscale logins that can toggle admin mode
+# ts-admins = ["alice@example.com"]  # Tailscale logins that can toggle admin mode
+# user-perms = ["*"]  # LAN user permissions: "add", "update", "delete", or ["*"] for all
 ```
 
 With a config file, just run `./golinx` — no flags needed. Command-line flags override config file values (with a warning).
@@ -127,21 +128,23 @@ GoLinx starts with an empty database. Populate it with sample linx:
 
 ## Permissions
 
-When running on Tailscale, GoLinx enforces simple owner-based access control:
+GoLinx enforces owner-based access control with automatic localhost admin:
 
 | Situation | Edit | Delete | UI |
 |-----------|------|--------|-----|
 | You own the linx | Yes | Yes | Edit + Delete |
 | Linx has no owner | Yes (claims it) | Yes | Edit + Delete |
 | Someone else owns it | No | No | View only |
+| **Localhost** (127.0.0.1) | **Yes** | **Yes** | **Edit + Delete** |
 
-- Linx are automatically owned by the Tailscale user who creates them
+- Linx are automatically owned by the creating user (Tailscale login or `local@hostname`)
 - Unowned linx can be claimed by anyone — editing sets you as owner
 - Owners can clear or transfer ownership via the owner field
 - Non-owners see a readonly "Linx Info" view
-- **Admin mode** — users listed in `admins` config can toggle admin mode to bypass ownership checks
-- Local mode (no Tailscale) has no restrictions
-- Enforced server-side — API returns 403 for unauthorized edits/deletes
+- **Localhost auto-admin** — requests from 127.0.0.1 or ::1 have full access, no toggle needed
+- **User permissions** — `user-perms` config controls what LAN users can do (`["*"]` default = full access, `["add"]` = create only, `[]` = read-only). Localhost and Tailscale users are not affected
+- **Admin mode** — users listed in `ts-admins` config can toggle admin mode to bypass ownership checks
+- Enforced server-side — API returns 403 for unauthorized actions
 
 ## Linx Types
 

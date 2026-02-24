@@ -4,8 +4,8 @@
 
 Everything in GoLinx is a **Linx**. The linx type determines its behavior:
 
-| Type | Badge | What happens at `/{name}` |
-|------|-------|---------------------------|
+| Type | Badge | Behavior |
+|------|-------|----------|
 | Link | — | Redirects to the destination URL |
 | Employee | Emp | Shows a profile page |
 | Customer | Cus | Shows a profile page |
@@ -30,8 +30,13 @@ The search box filters linx in real time using substring matching with fuzzy fal
 | `:c` | Customers | `:c acme` |
 | `:v` | Vendors | `:v cal` |
 | `:l` | Links | `:l git` |
+| `:t` | Tags (OR match) | `:t ops, infra` |
 
 Use the prefix alone (e.g. `:e`) to show all linx of that type.
+
+## Tags
+
+All linx types support comma-separated tags. Use `:t tag1, tag2` to find linx with any of the listed tags.
 
 If your search narrows to exactly one linx, press **Enter** to open it in a new tab.
 
@@ -92,23 +97,26 @@ Destination URLs can be a short name instead of a full URL. This creates a local
 
 ## Permissions
 
-When running on Tailscale, GoLinx enforces owner-based permissions using your Tailscale identity:
+GoLinx enforces owner-based permissions:
 
 | Situation | Edit | Delete | Context Menu |
 |-----------|------|--------|-------------|
 | You own the linx | Yes | Yes | Edit + Delete |
 | Linx has no owner | Yes (claims it) | Yes | Edit + Delete |
 | Someone else owns it | No | No | View (readonly) |
+| **Localhost** (127.0.0.1) | **Yes** | **Yes** | **Edit + Delete** |
 
-- **Ownership** is set automatically when you create a linx — your Tailscale login becomes the owner.
+- **Ownership** is set automatically when you create a linx — your Tailscale login (or `local@hostname` in local mode) becomes the owner.
 - **Unowned linx** (empty owner) can be claimed by anyone — editing an unowned linx sets you as the owner.
 - **Owners** can clear the owner field to make a linx unowned, or change it to transfer ownership.
 - **Non-owners** see a readonly "Linx Info" modal — same fields, but disabled with no Save button.
 - **Double-click** on a linx opens Edit if you own it, or Linx Info if you don't.
-- **Admin mode** — users listed in the `admins` config can toggle admin mode via the header switch to bypass ownership checks.
-- **Local mode** (no Tailscale) has no restrictions — all users share the same identity.
+- **Localhost auto-admin** — requests from 127.0.0.1 or ::1 always have full access, no toggle needed.
+- **User permissions** — the `user-perms` config controls what non-localhost LAN users can do: `["add", "update", "delete"]` for full access, `["add"]` for create-only, `[]` for read-only. Defaults to `["*"]` (full access). Localhost and Tailscale users are not affected.
+- **Admin mode** — users listed in the `ts-admins` config can toggle admin mode via the header switch to bypass ownership checks.
+- **Local mode** (no Tailscale) — all users share the `local@hostname` identity. Localhost gets auto-admin for all linx.
 
-Permissions are enforced server-side — the API returns 403 Forbidden if you try to update or delete a linx you don't own.
+Permissions are enforced server-side — the API returns 403 Forbidden for unauthorized actions.
 
 ## Avatars
 
@@ -149,6 +157,7 @@ ts-hostname = "go"
 verbose = false
 max-resolve-depth = 5
 # ts-dir = "/data/tsnet"  # default: OS config dir (e.g. ~/.config/tsnet-golinx)
+# user-perms = ["*"]  # LAN user permissions: "add", "update", "delete", or ["*"] for all
 ```
 
 Command-line flags override config file values (with a warning).

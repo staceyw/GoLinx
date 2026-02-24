@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -855,6 +856,260 @@ func TestAPI_WhoAmI(t *testing.T) {
 	}
 }
 
+func TestIsLocalhost(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		want       bool
+	}{
+		{"IPv4 loopback", "127.0.0.1:54321", true},
+		{"IPv6 loopback", "[::1]:54321", true},
+		{"LAN address", "192.168.1.100:54321", false},
+		{"Tailscale address", "100.64.0.1:54321", false},
+		{"httptest default", "192.0.2.1:1234", false},
+		{"bare IPv4 loopback", "127.0.0.1", true},
+		{"bare IPv6 loopback", "::1", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &http.Request{RemoteAddr: tt.remoteAddr}
+			if got := isLocalhost(r); got != tt.want {
+				t.Errorf("isLocalhost(%q) = %v, want %v", tt.remoteAddr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLocalhostAutoAdmin(t *testing.T) {
+	resetDB(t)
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "priv", DestinationURL: "https://example.com", Owner: "other@example.com"})
+
+	origCurrentUser := currentUser
+	defer func() { currentUser = origCurrentUser }()
+	currentUser = func(r *http.Request) (string, error) {
+		return "local@testhost", nil
+	}
+
+	t.Run("localhost can edit others linx", func(t *testing.T) {
+		r := &http.Request{RemoteAddr: "127.0.0.1:54321"}
+		if !canEdit(r, "other@example.com") {
+			t.Error("localhost should have auto-admin access")
+		}
+	})
+	t.Run("non-localhost cannot edit others linx", func(t *testing.T) {
+		r := &http.Request{RemoteAddr: "192.168.1.100:54321"}
+		if canEdit(r, "other@example.com") {
+			t.Error("non-localhost should not have auto-admin access")
+		}
+	})
+	t.Run("non-localhost can edit own linx", func(t *testing.T) {
+		r := &http.Request{RemoteAddr: "192.168.1.100:54321"}
+		currentUser = func(r *http.Request) (string, error) {
+			return "other@example.com", nil
+		}
+		if !canEdit(r, "other@example.com") {
+			t.Error("owner should always be able to edit own linx")
+		}
+	})
+}
+
+func TestAPI_WhoAmI_LocalhostAdmin(t *testing.T) {
+	origCurrentUser := currentUser
+	defer func() { currentUser = origCurrentUser }()
+	currentUser = func(r *http.Request) (string, error) {
+		return "local@testhost", nil
+	}
+	mux := serveHandler()
+
+	t.Run("localhost gets localhostAdmin true", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/whoami", nil)
+		req.RemoteAddr = "127.0.0.1:54321"
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		var resp map[string]any
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp["localhostAdmin"] != true {
+			t.Errorf("localhostAdmin = %v, want true", resp["localhostAdmin"])
+		}
+		if resp["isAdmin"] != true {
+			t.Errorf("isAdmin = %v, want true", resp["isAdmin"])
+		}
+	})
+	t.Run("non-localhost gets localhostAdmin false", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/whoami", nil)
+		req.RemoteAddr = "192.168.1.100:54321"
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		var resp map[string]any
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp["localhostAdmin"] == true {
+			t.Errorf("localhostAdmin = %v, want false", resp["localhostAdmin"])
+		}
+	})
+}
+
+func TestHasUserPerm(t *testing.T) {
+	orig := userPerms
+	defer func() { userPerms = orig }()
+
+	t.Run("wildcard grants all", func(t *testing.T) {
+		userPerms = []string{"*"}
+		if !hasUserPerm("add") || !hasUserPerm("update") || !hasUserPerm("delete") {
+			t.Error("wildcard should grant all permissions")
+		}
+	})
+	t.Run("specific perms", func(t *testing.T) {
+		userPerms = []string{"add"}
+		if !hasUserPerm("add") {
+			t.Error("should have add perm")
+		}
+		if hasUserPerm("update") || hasUserPerm("delete") {
+			t.Error("should not have update or delete perm")
+		}
+	})
+	t.Run("empty denies all", func(t *testing.T) {
+		userPerms = []string{}
+		if hasUserPerm("add") || hasUserPerm("update") || hasUserPerm("delete") {
+			t.Error("empty perms should deny all")
+		}
+	})
+	t.Run("case insensitive", func(t *testing.T) {
+		userPerms = []string{"Add", "DELETE"}
+		if !hasUserPerm("add") || !hasUserPerm("delete") {
+			t.Error("perms should be case insensitive")
+		}
+	})
+}
+
+func TestUserPerms_Create(t *testing.T) {
+	resetDB(t)
+	origPerms := userPerms
+	origUser := currentUser
+	defer func() { userPerms = origPerms; currentUser = origUser }()
+
+	currentUser = func(r *http.Request) (string, error) {
+		return "local@testhost", nil
+	}
+	mux := serveHandler()
+
+	t.Run("denied without add perm", func(t *testing.T) {
+		userPerms = []string{}
+		body := `{"type":"link","shortName":"blocked","destinationURL":"https://example.com"}`
+		req := httptest.NewRequest("POST", "/api/linx", strings.NewReader(body))
+		req.RemoteAddr = "192.168.1.100:54321"
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 403 {
+			t.Errorf("status = %d, want 403", w.Code)
+		}
+	})
+	t.Run("allowed with add perm", func(t *testing.T) {
+		userPerms = []string{"add"}
+		body := `{"type":"link","shortName":"allowed","destinationURL":"https://example.com"}`
+		req := httptest.NewRequest("POST", "/api/linx", strings.NewReader(body))
+		req.RemoteAddr = "192.168.1.100:54321"
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 201 {
+			t.Errorf("status = %d, want 201", w.Code)
+		}
+	})
+	t.Run("localhost bypasses perms", func(t *testing.T) {
+		userPerms = []string{}
+		body := `{"type":"link","shortName":"fromlocal","destinationURL":"https://example.com"}`
+		req := httptest.NewRequest("POST", "/api/linx", strings.NewReader(body))
+		req.RemoteAddr = "127.0.0.1:54321"
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 201 {
+			t.Errorf("status = %d, want 201 (localhost should bypass perms)", w.Code)
+		}
+	})
+}
+
+func TestUserPerms_Update(t *testing.T) {
+	resetDB(t)
+	origPerms := userPerms
+	origUser := currentUser
+	defer func() { userPerms = origPerms; currentUser = origUser }()
+
+	currentUser = func(r *http.Request) (string, error) {
+		return "local@testhost", nil
+	}
+	lnx := &Linx{Type: LinxTypeLink, ShortName: "uptest", DestinationURL: "https://example.com", Owner: "local@testhost"}
+	id, _ := db.Save(lnx)
+	mux := serveHandler()
+
+	t.Run("denied without update perm", func(t *testing.T) {
+		userPerms = []string{"add"}
+		body := `{"type":"link","shortName":"uptest","destinationURL":"https://changed.com"}`
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/api/linx/%d", id), strings.NewReader(body))
+		req.RemoteAddr = "192.168.1.100:54321"
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 403 {
+			t.Errorf("status = %d, want 403", w.Code)
+		}
+	})
+	t.Run("allowed with update perm", func(t *testing.T) {
+		userPerms = []string{"update"}
+		body := `{"type":"link","shortName":"uptest","destinationURL":"https://changed.com"}`
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/api/linx/%d", id), strings.NewReader(body))
+		req.RemoteAddr = "192.168.1.100:54321"
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
+}
+
+func TestUserPerms_Delete(t *testing.T) {
+	resetDB(t)
+	origPerms := userPerms
+	origUser := currentUser
+	defer func() { userPerms = origPerms; currentUser = origUser }()
+
+	currentUser = func(r *http.Request) (string, error) {
+		return "local@testhost", nil
+	}
+	lnx := &Linx{Type: LinxTypeLink, ShortName: "deltest", DestinationURL: "https://example.com", Owner: "local@testhost"}
+	id, _ := db.Save(lnx)
+	mux := serveHandler()
+
+	t.Run("denied without delete perm", func(t *testing.T) {
+		userPerms = []string{"add", "update"}
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/linx/%d", id), nil)
+		req.RemoteAddr = "192.168.1.100:54321"
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 403 {
+			t.Errorf("status = %d, want 403", w.Code)
+		}
+	})
+	t.Run("allowed with delete perm", func(t *testing.T) {
+		userPerms = []string{"delete"}
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/linx/%d", id), nil)
+		req.RemoteAddr = "192.168.1.100:54321"
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // 4. Link resolution tests
 // ---------------------------------------------------------------------------
@@ -1471,4 +1726,110 @@ func TestServe_WhoAmIPage(t *testing.T) {
 			t.Error("SSE stream should contain done event")
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+func TestTags_CreateAndLoad(t *testing.T) {
+	mux := serveHandler()
+	resetDB(t)
+
+	w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
+		"type": "link", "shortName": "tagged", "destinationURL": "https://example.com",
+		"tags": "ops, infra",
+	})
+	if w.Code != 201 {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+	var lnx Linx
+	json.Unmarshal(w.Body.Bytes(), &lnx)
+	if lnx.Tags != "ops, infra" {
+		t.Errorf("tags = %q, want %q", lnx.Tags, "ops, infra")
+	}
+
+	// Verify round-trip through LoadByShortName
+	loaded, err := db.LoadByShortName("tagged")
+	if err != nil {
+		t.Fatalf("LoadByShortName: %v", err)
+	}
+	if loaded.Tags != "ops, infra" {
+		t.Errorf("loaded tags = %q, want %q", loaded.Tags, "ops, infra")
+	}
+}
+
+func TestTags_Update(t *testing.T) {
+	mux := serveHandler()
+	resetDB(t)
+
+	// Create
+	w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
+		"type": "link", "shortName": "tagupd", "destinationURL": "https://example.com",
+		"tags": "old-tag",
+	})
+	if w.Code != 201 {
+		t.Fatalf("create status = %d", w.Code)
+	}
+	var created Linx
+	json.Unmarshal(w.Body.Bytes(), &created)
+
+	// Update tags
+	w = doJSON(t, mux, "PUT", "/api/linx/"+strconv.FormatInt(created.ID, 10), map[string]string{
+		"type": "link", "shortName": "tagupd", "destinationURL": "https://example.com",
+		"tags": "new-tag, extra",
+	})
+	if w.Code != 200 {
+		t.Fatalf("update status = %d; body: %s", w.Code, w.Body.String())
+	}
+	var updated Linx
+	json.Unmarshal(w.Body.Bytes(), &updated)
+	if updated.Tags != "new-tag, extra" {
+		t.Errorf("updated tags = %q, want %q", updated.Tags, "new-tag, extra")
+	}
+}
+
+func TestTags_EmptyByDefault(t *testing.T) {
+	mux := serveHandler()
+	resetDB(t)
+
+	w := doJSON(t, mux, "POST", "/api/linx", map[string]string{
+		"type": "link", "shortName": "notag", "destinationURL": "https://example.com",
+	})
+	if w.Code != 201 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var lnx Linx
+	json.Unmarshal(w.Body.Bytes(), &lnx)
+	if lnx.Tags != "" {
+		t.Errorf("tags = %q, want empty", lnx.Tags)
+	}
+}
+
+func TestNormalizeTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty", "", ""},
+		{"single", "ops", "ops"},
+		{"multiple", "ops, infra, dev", "ops, infra, dev"},
+		{"uppercase to lower", "Ops, INFRA", "ops, infra"},
+		{"spaces become dashes", "my project, hello world", "my-project, hello-world"},
+		{"extra whitespace", "  ops  ,  infra  ", "ops, infra"},
+		{"dedup", "ops, infra, ops", "ops, infra"},
+		{"dedup case insensitive", "Ops, ops", "ops"},
+		{"max 10 tags", "a,b,c,d,e,f,g,h,i,j,k,l", "a, b, c, d, e, f, g, h, i, j"},
+		{"tag max 30 chars", "abcdefghijklmnopqrstuvwxyz12345678", "abcdefghijklmnopqrstuvwxyz1234"},
+		{"blank tags removed", "ops,,, infra,, ", "ops, infra"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeTags(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeTags(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
 }

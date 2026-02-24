@@ -104,7 +104,25 @@ foreach ($t in $targets) {
 # Create release
 Write-Host ""
 Write-Host "Creating release $Tag ..."
-gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes
+$notes = @"
+## Downloads
+
+| File | Description |
+|------|-------------|
+| ``golinx-windows-amd64.zip`` | Windows x64 (zip with config template) |
+| ``golinx-windows-arm64.zip`` | Windows ARM64 (zip with config template) |
+| ``golinx-linux-amd64.zip`` | Linux x64 (zip with config template) |
+| ``golinx-linux-arm64.zip`` | Linux ARM64 / Raspberry Pi (zip with config template) |
+| ``golinx-darwin-arm64.zip`` | macOS Apple Silicon (zip with config template) |
+| ``golinx-windows-amd64.exe`` | Windows x64 (binary only) |
+| ``golinx-windows-arm64.exe`` | Windows ARM64 (binary only) |
+| ``golinx-linux-amd64`` | Linux x64 (binary only) |
+| ``golinx-linux-arm64`` | Linux ARM64 / Raspberry Pi (binary only) |
+| ``golinx-darwin-arm64`` | macOS Apple Silicon (binary only) |
+
+> **Tip:** ZIP bundles include ``golinx.example.toml`` and a quick-start README.
+"@
+gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 
 Write-Host ""

@@ -41,6 +41,7 @@ type Linx struct {
 	LinkedInLink string `json:"linkedInLink"`
 	AvatarMime     string `json:"avatarMime,omitempty"`
 	Color          string `json:"color"`
+	Tags           string `json:"tags"`
 	DateCreated    int64  `json:"dateCreated"`
 }
 
@@ -49,14 +50,14 @@ func (c *Linx) IsPersonType() bool {
 	return c.Type == LinxTypeEmployee || c.Type == LinxTypeCustomer || c.Type == LinxTypeVendor
 }
 
-const linxColumns = `ID, Type, ShortName, DestinationURL, Description, Owner, LastClicked, ClickCount, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, AvatarMime, Color, DateCreated`
+const linxColumns = `ID, Type, ShortName, DestinationURL, Description, Owner, LastClicked, ClickCount, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, AvatarMime, Color, Tags, DateCreated`
 
 func scanLinx(scanner interface{ Scan(dest ...any) error }) (*Linx, error) {
 	c := new(Linx)
 	err := scanner.Scan(&c.ID, &c.Type, &c.ShortName, &c.DestinationURL,
 		&c.Description, &c.Owner, &c.LastClicked, &c.ClickCount,
 		&c.FirstName, &c.LastName, &c.Title, &c.Email, &c.Phone,
-		&c.WebLink, &c.CalLink, &c.XLink, &c.LinkedInLink, &c.AvatarMime, &c.Color, &c.DateCreated)
+		&c.WebLink, &c.CalLink, &c.XLink, &c.LinkedInLink, &c.AvatarMime, &c.Color, &c.Tags, &c.DateCreated)
 	return c, err
 }
 
@@ -97,6 +98,7 @@ func NewSQLiteDB(f string) (*SQLiteDB, error) {
 	// Migrate: add columns that may not exist in older databases.
 	for _, col := range []string{
 		"ALTER TABLE Linx ADD COLUMN Color TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE Linx ADD COLUMN Tags TEXT NOT NULL DEFAULT ''",
 	} {
 		db.Exec(col) // ignore "duplicate column" errors
 	}
@@ -176,10 +178,10 @@ func (s *SQLiteDB) insertLinx(lnx *Linx) (int64, error) {
 	}
 	now := time.Now().Unix()
 	result, err := s.db.Exec(
-		`INSERT INTO Linx (Type, ShortName, DestinationURL, Description, Owner, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, Color, DateCreated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO Linx (Type, ShortName, DestinationURL, Description, Owner, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, Color, Tags, DateCreated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		lnx.Type, lnx.ShortName, lnx.DestinationURL, lnx.Description, lnx.Owner,
 		lnx.FirstName, lnx.LastName, lnx.Title, lnx.Email, lnx.Phone,
-		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, now,
+		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, lnx.Tags, now,
 	)
 	if err != nil {
 		return 0, err
@@ -193,10 +195,10 @@ func (s *SQLiteDB) Update(lnx *Linx) error {
 	defer s.mu.Unlock()
 
 	result, err := s.db.Exec(
-		`UPDATE Linx SET Type=?, ShortName=?, DestinationURL=?, Description=?, Owner=?, FirstName=?, LastName=?, Title=?, Email=?, Phone=?, WebLink=?, CalLink=?, XLink=?, LinkedInLink=?, Color=? WHERE ID=?`,
+		`UPDATE Linx SET Type=?, ShortName=?, DestinationURL=?, Description=?, Owner=?, FirstName=?, LastName=?, Title=?, Email=?, Phone=?, WebLink=?, CalLink=?, XLink=?, LinkedInLink=?, Color=?, Tags=? WHERE ID=?`,
 		lnx.Type, lnx.ShortName, lnx.DestinationURL, lnx.Description, lnx.Owner,
 		lnx.FirstName, lnx.LastName, lnx.Title, lnx.Email, lnx.Phone,
-		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, lnx.ID,
+		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, lnx.Tags, lnx.ID,
 	)
 	if err != nil {
 		return err

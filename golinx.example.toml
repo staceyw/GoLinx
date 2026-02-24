@@ -31,4 +31,10 @@ verbose = false
 # max-resolve-depth = 5
 
 # Admin users — Tailscale logins that can toggle admin mode to bypass ownership checks.
-# admins = ["alice@example.com", "bob@example.com"]
+# ts-admins = ["alice@example.com", "bob@example.com"]
+
+# Permissions for non-localhost local users (default: ["*"] = full access).
+# Controls what LAN users can do when accessing via the local HTTP listener.
+# Localhost (127.0.0.1/::1) always has full admin access regardless of this setting.
+# Available permissions: "add", "update", "delete" — or ["*"] for all, [] for read-only.
+# user-perms = ["*"]

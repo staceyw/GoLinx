@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS Linx (
     AvatarData      BLOB,
     AvatarMime      TEXT    NOT NULL DEFAULT '',
     Color           TEXT    NOT NULL DEFAULT '',
+    Tags            TEXT    NOT NULL DEFAULT '',
     DateCreated     INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
