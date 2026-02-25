@@ -103,7 +103,9 @@ if ($DryRun) {
 Write-Host ""
 Write-Host "Creating release $Tag ..."
 $notes = @"
-## Quick Install
+## Option 1: Install Script
+
+Run one command to download everything into ``~/golinx/`` (binary, config template, and quick-start README).
 
 **Linux / macOS:**
 ``````
@@ -115,7 +117,9 @@ curl -fsSL https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install
 iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.ps1)
 ``````
 
-## Downloads
+## Option 2: Manual Download
+
+Pick your platform binary below, plus ``golinx.example.toml`` and ``README.txt``.
 
 | File | Description |
 |------|-------------|
@@ -126,8 +130,6 @@ iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.p
 | ``golinx-darwin-arm64`` | macOS Apple Silicon |
 | ``golinx.example.toml`` | Example configuration file |
 | ``README.txt`` | Quick-start guide |
-
-> **Tip:** The install scripts download the binary, config template, and README into ``~/golinx/`` automatically.
 "@
 gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
