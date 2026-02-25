@@ -1,6 +1,6 @@
-# Cross-compile, bundle ZIPs, and create a GitHub release.
-# Usage:  .\scripts\release.ps1 v0.2.0
-#         .\scripts\release.ps1 v0.2.0 -DryRun   # build + zip only, no upload
+# Cross-compile binaries and create a GitHub release.
+# Usage:  .\scripts\release.ps1 v0.3.0
+#         .\scripts\release.ps1 v0.3.0 -DryRun   # build only, no upload
 
 param(
     [Parameter(Position=0)]
@@ -24,11 +24,11 @@ $dist = Join-Path $root "dist"
 if (!(Test-Path $dist)) { New-Item -ItemType Directory -Path $dist | Out-Null }
 
 $targets = @(
-    @{ GOOS="windows"; GOARCH="amd64"; Out="golinx-windows-amd64.exe"; Zip="golinx-windows-amd64.zip"; ZipBin="golinx.exe" },
-    @{ GOOS="windows"; GOARCH="arm64"; Out="golinx-windows-arm64.exe"; Zip="golinx-windows-arm64.zip"; ZipBin="golinx.exe" },
-    @{ GOOS="linux";   GOARCH="amd64"; Out="golinx-linux-amd64";      Zip="golinx-linux-amd64.zip";   ZipBin="golinx" },
-    @{ GOOS="linux";   GOARCH="arm64"; Out="golinx-linux-arm64";      Zip="golinx-linux-arm64.zip";   ZipBin="golinx" },
-    @{ GOOS="darwin";  GOARCH="arm64"; Out="golinx-darwin-arm64";      Zip="golinx-darwin-arm64.zip";  ZipBin="golinx" }
+    @{ GOOS="windows"; GOARCH="amd64"; Out="golinx-windows-amd64.exe" },
+    @{ GOOS="windows"; GOARCH="arm64"; Out="golinx-windows-arm64.exe" },
+    @{ GOOS="linux";   GOARCH="amd64"; Out="golinx-linux-amd64" },
+    @{ GOOS="linux";   GOARCH="arm64"; Out="golinx-linux-arm64" },
+    @{ GOOS="darwin";  GOARCH="arm64"; Out="golinx-darwin-arm64" }
 )
 
 # Build binaries
@@ -58,9 +58,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Tests failed" }
 } finally { Pop-Location }
 
-# Create ZIP bundles
+# Copy common files as standalone release assets (used by install scripts)
 Write-Host ""
-Write-Host "Creating ZIP bundles ..."
+Write-Host "Preparing common assets ..."
+$example = Join-Path $root "golinx.example.toml"
+
 $readme = Join-Path $dist "README.txt"
 @"
 GoLinx - URL shortener and people directory
@@ -74,59 +76,24 @@ Quick Start:
 Full documentation: https://github.com/staceyw/GoLinx
 "@ | Set-Content -Path $readme -Encoding UTF8
 
-$example = Join-Path $root "golinx.example.toml"
+$config = Join-Path $dist "golinx.example.toml"
+Copy-Item $example $config
 
-foreach ($t in $targets) {
-    $zipPath = Join-Path $dist $t.Zip
-    $binPath = Join-Path $dist $t.Out
-    # Create a temp staging folder
-    $stage = Join-Path $dist "stage"
-    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-    New-Item -ItemType Directory -Path $stage | Out-Null
-
-    Copy-Item $binPath (Join-Path $stage $t.ZipBin)
-    Copy-Item $example $stage
-    Copy-Item $readme  $stage
-
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    Compress-Archive -Path "$stage\*" -DestinationPath $zipPath
-    Remove-Item $stage -Recurse -Force
-    Write-Host "  $($t.Zip)"
-}
-
-Remove-Item $readme -Force
-
-# Copy common files as standalone release assets (used by install scripts)
-$commonReadme = Join-Path $dist "README.txt"
-@"
-GoLinx - URL shortener and people directory
-
-Quick Start:
-  1. Copy golinx.example.toml to golinx.toml
-  2. Edit golinx.toml - add at least one listener (e.g. http://:8080)
-  3. Run:  ./golinx
-  4. Open: http://localhost:8080
-
-Full documentation: https://github.com/staceyw/GoLinx
-"@ | Set-Content -Path $commonReadme -Encoding UTF8
-
-$commonConfig = Join-Path $dist "golinx.example.toml"
-Copy-Item $example $commonConfig
-
-# Collect all assets (binaries + ZIPs + common files)
+# Collect all assets (binaries + common files)
 $assets = @()
 foreach ($t in $targets) {
     $assets += Join-Path $dist $t.Out
-    $assets += Join-Path $dist $t.Zip
 }
-$assets += $commonReadme
-$assets += $commonConfig
+$assets += $readme
+$assets += $config
+
+Write-Host "  README.txt"
+Write-Host "  golinx.example.toml"
 
 if ($DryRun) {
     Write-Host ""
     Write-Host "Dry run complete. Artifacts in: $dist"
     Write-Host "  Binaries: $($targets.Count)"
-    Write-Host "  ZIPs:     $($targets.Count)"
     Write-Host "  Common:   README.txt, golinx.example.toml"
     Write-Host "Re-run without -DryRun to upload to GitHub."
     return
@@ -152,18 +119,15 @@ iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.p
 
 | File | Description |
 |------|-------------|
-| ``golinx-windows-amd64.zip`` | Windows x64 (zip with config template) |
-| ``golinx-windows-arm64.zip`` | Windows ARM64 (zip with config template) |
-| ``golinx-linux-amd64.zip`` | Linux x64 (zip with config template) |
-| ``golinx-linux-arm64.zip`` | Linux ARM64 / Raspberry Pi (zip with config template) |
-| ``golinx-darwin-arm64.zip`` | macOS Apple Silicon (zip with config template) |
-| ``golinx-windows-amd64.exe`` | Windows x64 (binary only) |
-| ``golinx-windows-arm64.exe`` | Windows ARM64 (binary only) |
-| ``golinx-linux-amd64`` | Linux x64 (binary only) |
-| ``golinx-linux-arm64`` | Linux ARM64 / Raspberry Pi (binary only) |
-| ``golinx-darwin-arm64`` | macOS Apple Silicon (binary only) |
+| ``golinx-windows-amd64.exe`` | Windows x64 |
+| ``golinx-windows-arm64.exe`` | Windows ARM64 |
+| ``golinx-linux-amd64`` | Linux x64 |
+| ``golinx-linux-arm64`` | Linux ARM64 / Raspberry Pi |
+| ``golinx-darwin-arm64`` | macOS Apple Silicon |
+| ``golinx.example.toml`` | Example configuration file |
+| ``README.txt`` | Quick-start guide |
 
-> **Tip:** ZIP bundles include ``golinx.example.toml`` and a quick-start README. The install scripts download these files individually — no unzip needed.
+> **Tip:** The install scripts download the binary, config template, and README into ``~/golinx/`` automatically.
 "@
 gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
