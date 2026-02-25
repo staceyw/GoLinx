@@ -37,10 +37,12 @@ a:hover{text-decoration:underline}
 .install-script{max-width:660px;margin:0 auto;text-align:left}
 .install-script .os-label{font-size:0.85rem;color:#a6adc8;margin-bottom:4px;margin-top:16px}
 .install-script .os-label:first-child{margin-top:0}
-.install-script pre{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 16px;overflow-x:auto;font-size:0.85rem;color:#f9e2af;margin-bottom:0;cursor:pointer;position:relative}
-.install-script pre:hover{border-color:#585b70}
-.install-script pre::after{content:'click to copy';position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:0.7rem;color:#6c7086;pointer-events:none;transition:color 0.15s}
-.install-script pre.copied::after{content:'copied!';color:#a6e3a1}
+.cmd-wrap{position:relative}
+.install-script pre{background:#181825;border:1px solid #313244;border-radius:8px;padding:14px 48px 14px 16px;overflow-x:auto;font-size:0.85rem;color:#f9e2af;margin-bottom:0}
+.cmd-wrap:hover pre{border-color:#585b70}
+.copy-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:1px solid #45475a;border-radius:4px;color:#6c7086;font-size:0.75rem;padding:4px 8px;cursor:pointer;transition:color 0.15s,border-color 0.15s}
+.copy-btn:hover{color:#cdd6f4;border-color:#585b70}
+.copy-btn.copied{color:#a6e3a1;border-color:#a6e3a1}
 .install-subtitle{color:#a6adc8;margin-bottom:20px;font-size:0.95rem}
 .download-grid{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
 .download-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:#313244;border:1px solid #45475a;border-radius:8px;color:#cdd6f4;font-size:0.95rem;font-weight:500;transition:background 0.15s,border-color 0.15s}
@@ -99,9 +101,15 @@ a:hover{text-decoration:underline}
     <div id="tab-script" class="install-panel active">
       <div class="install-script">
         <div class="os-label">Linux / macOS</div>
-        <pre onclick="copyCmd(this)">curl -fsSL https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.sh | bash</pre>
+        <div class="cmd-wrap">
+          <pre>curl -fsSL https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.sh | bash</pre>
+          <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+        </div>
         <div class="os-label">Windows (PowerShell)</div>
-        <pre onclick="copyCmd(this)">iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.ps1)</pre>
+        <div class="cmd-wrap">
+          <pre>iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.ps1)</pre>
+          <button class="copy-btn" onclick="copyCmd(this)">Copy</button>
+        </div>
       </div>
       <p class="download-extra" style="text-align:center;margin-top:20px">Downloads binary, config template, and quick-start README into <code style="background:#313244;padding:2px 6px;border-radius:4px;font-size:0.8rem;color:#f9e2af">~/golinx/</code></p>
     </div>
@@ -193,11 +201,13 @@ function showTab(name){
   document.querySelector('[onclick="showTab(\''+name+'\')"]').classList.add('active')
   document.getElementById('tab-'+name).classList.add('active')
 }
-function copyCmd(el){
-  var text=el.textContent.replace(/\n/g,'').replace(/click to copy|copied!/g,'').trim()
+function copyCmd(btn){
+  var pre=btn.parentElement.querySelector('pre')
+  var text=pre.textContent.trim()
   navigator.clipboard.writeText(text).then(function(){
-    el.classList.add('copied')
-    setTimeout(function(){el.classList.remove('copied')},1500)
+    btn.textContent='Copied!'
+    btn.classList.add('copied')
+    setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},1500)
   })
 }
 fetch('https://api.github.com/repos/staceyw/GoLinx/releases/latest')
