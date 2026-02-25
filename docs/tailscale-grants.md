@@ -31,9 +31,13 @@ Replace the emails with the Tailscale login names of users who should have admin
 
 ---
 
-## Step 2: Define the Tag Owner
+## Step 2: Tag the GoLinx Node
 
-GoLinx automatically advertises `tag:golinx` on your tailnet. For Tailscale to accept the tag, you need to define who owns it in your ACL policy file:
+To target GoLinx in grants, you need to tag its Tailscale node.
+
+### 2a. Define the tag owner
+
+In your ACL policy file, add a `tagOwners` entry:
 
 ```jsonc
 {
@@ -45,15 +49,21 @@ GoLinx automatically advertises `tag:golinx` on your tailnet. For Tailscale to a
 
 Replace `your-login@example.com` with the Tailscale login of the person who runs the GoLinx server. You can also use a group (e.g. `group:golinx-admins`) as the tag owner.
 
-Once this is saved and GoLinx restarts, the node will appear as `tag:golinx` on the [Machines page](https://login.tailscale.com/admin/machines). The node may need to re-authenticate once.
+### 2b. Apply the tag
 
-**What tagging does:**
+1. Open the [Machines page](https://login.tailscale.com/admin/machines) in the Admin Console
+2. Find the `go` machine (or whatever your `ts-hostname` is)
+3. Click the `...` menu → **Edit ACL tags...**
+4. Add `tag:golinx`
+5. Save
+
+The node may need to re-authenticate once. After that, key expiry is disabled.
+
+### What tagging does
 
 - Key expiry is **disabled** — no more 180-day reauth prompts (ideal for servers)
 - The node is **owned by the tag** instead of a user — this is fine for GoLinx since it's a service
 - The node **cannot initiate connections to shared nodes** — irrelevant for GoLinx since it only receives requests
-
-> **Note:** If `tagOwners` isn't configured yet, GoLinx still works normally — it just runs untagged. You only need the tag when you're ready to set up grants.
 
 ---
 

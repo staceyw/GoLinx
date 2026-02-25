@@ -15,8 +15,8 @@ listen = [
   # "ts+http://:80",
 ]
 
-# Tailscale node hostname (required for ts+* listeners)
-# ts-hostname = "go"
+# Tailscale node hostname (default: "go")
+ts-hostname = "go"
 
 # Enable verbose tsnet logging (default: false)
 verbose = false

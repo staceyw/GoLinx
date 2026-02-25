@@ -131,8 +131,21 @@ Pick your platform binary below, plus ``golinx.example.toml`` and ``README.txt``
 | ``golinx.example.toml`` | Example configuration file |
 | ``README.txt`` | Quick-start guide |
 "@
-gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes --notes $notes
+gh release create $Tag --title "GoLinx $Tag" --generate-notes --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+
+Write-Host ""
+Write-Host "Uploading $($assets.Count) assets ..."
+$i = 0
+foreach ($a in $assets) {
+    $i++
+    $name = Split-Path $a -Leaf
+    $size = [math]::Round((Get-Item $a).Length / 1MB, 1)
+    Write-Host "  [$i/$($assets.Count)] $name (${size} MB) ..." -NoNewline
+    gh release upload $Tag $a --clobber 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Upload failed for $name" }
+    Write-Host " done" -ForegroundColor Green
+}
 
 Write-Host ""
 Write-Host "Done: https://github.com/staceyw/GoLinx/releases/tag/$Tag"

@@ -66,7 +66,7 @@ var logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 var (
 	listeners  listenFlag
 	verbose    = flag.Bool("verbose", false, "verbose tsnet logging")
-	tsHostname      = flag.String("ts-hostname", "", "Tailscale node hostname")
+	tsHostname      = flag.String("ts-hostname", "go", "Tailscale node hostname")
 	tsDir           = flag.String("ts-dir", "", "Tailscale state directory (default: OS config dir)")
 	importFile      = flag.String("import", "", "import linx from JSON file (skips existing)")
 	resolveFile     = flag.String("resolve", "", "resolve a link from JSON backup file and exit")
@@ -790,9 +790,8 @@ func localIdentity() string {
 // and the node's FQDN.
 func initTailscale() (*tsnet.Server, bool, string, error) {
 	tsSrv := &tsnet.Server{
-		Hostname:      *tsHostname,
-		Dir:           *tsDir,
-		AdvertiseTags: []string{"tag:golinx"},
+		Hostname: *tsHostname,
+		Dir:      *tsDir,
 		Logf: func(format string, args ...any) {
 			msg := fmt.Sprintf(format, args...)
 			if strings.Contains(msg, "login.tailscale") || strings.Contains(msg, "To authenticate") {
