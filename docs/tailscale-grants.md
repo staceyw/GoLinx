@@ -25,19 +25,19 @@ GoLinx reads admin status from **Tailscale grants**, not from a config file. Whe
 }
 ```
 
-Replace the emails with the Tailscale login names of users who should have admin access. You can find login names on the [Users page](https://login.tailscale.com/admin/users) in the Admin Console.
+Replace the emails with the Tailscale login names of users who should have admin access. You can find login names on the [Users page](https://login.tailscale.com/admin/users).
 
-> **Tip:** You can skip the group and use individual users directly in the grant's `src` field, but groups make it easier to manage as your team changes.
+> **Tip:** You can skip `group:golinx-admins` and use individual users directly in the grant's `src` field, but groups make it easier to manage as your team changes.
 
 ---
 
 ## Step 2: Tag the GoLinx Node
 
-To target GoLinx in grants, you need to tag its Tailscale node.
+To target GoLinx in grants, you need to tag its Tailscale node with `tag:golinx`.
 
 ### 2a. Define the tag owner
 
-In your ACL policy file, add a `tagOwners` entry:
+In your ACL policy file, add a `tagOwners` entry for `tag:golinx`:
 
 ```jsonc
 {
@@ -47,13 +47,13 @@ In your ACL policy file, add a `tagOwners` entry:
 }
 ```
 
-Replace `your-login@example.com` with the Tailscale login of the person who runs the GoLinx server. You can also use a group (e.g. `group:golinx-admins`) as the tag owner.
+Replace `your-login@example.com` with your Tailscale login. You can also use a group (e.g. `group:golinx-admins`) as the tag owner.
 
 ### 2b. Apply the tag
 
-1. Open the [Machines page](https://login.tailscale.com/admin/machines) in the Admin Console
+1. Open the [Machines page](https://login.tailscale.com/admin/machines)
 2. Find the `go` machine (or whatever your `ts-hostname` is)
-3. Click the `...` menu → **Edit ACL tags...**
+3. Click the **...** menu → **Edit ACL tags...**
 4. Add `tag:golinx`
 5. Save
 
@@ -97,7 +97,7 @@ Add two grants to your ACL policy file:
 | Grant | Purpose |
 |-------|---------|
 | First (`ip: ["*"]`) | Allows network access to GoLinx for all tailnet members. Without this, nobody can reach the node. |
-| Second (`app: ...`) | Attaches the `admin` capability to requests from `group:golinx-admins`. GoLinx reads this to determine admin status. |
+| Second (`app: ...`) | Attaches the `golinx.dev/cap/golinx` capability to requests from `group:golinx-admins`. GoLinx reads this to determine admin status. |
 
 ---
 
@@ -112,9 +112,10 @@ Add two grants to your ACL policy file:
 
 **Admin toggle doesn't appear?**
 
-- Verify your Tailscale login is in `group:golinx-admins` (check [Users page](https://login.tailscale.com/admin/users))
-- Verify the GoLinx node is tagged as `tag:golinx` (check [Machines page](https://login.tailscale.com/admin/machines))
-- Verify the grants are saved in the ACL policy (check for JSON syntax errors)
+- Verify your Tailscale login is in `group:golinx-admins` — check the [Users page](https://login.tailscale.com/admin/users)
+- Verify the GoLinx node is tagged as `tag:golinx` — check the [Machines page](https://login.tailscale.com/admin/machines)
+- Verify the `grants` section is saved in the ACL policy — check for JSON syntax errors
+- Verify the `dst` in both grants targets `tag:golinx` (must match the tag on the node)
 - Hard-refresh the browser (`Ctrl+Shift+R`) to re-fetch `/api/whoami`
 
 **Localhost access?**
@@ -162,7 +163,7 @@ Here's a minimal but complete ACL policy file with GoLinx grants:
 
 ## Adding or Removing Admins
 
-To change who has admin access, edit the `group:golinx-admins` membership in your Tailscale ACL policy. Changes take effect immediately — no GoLinx restart needed.
+To change who has admin access, edit `group:golinx-admins` in your Tailscale ACL policy. Changes take effect immediately — no GoLinx restart needed.
 
 ```jsonc
 "groups": {
