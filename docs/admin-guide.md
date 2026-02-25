@@ -67,28 +67,66 @@ With a config file, just run `./golinx` — no flags needed. Command-line flags 
 | `--import <file>` | — | Import linx from a JSON backup and exit |
 | `--resolve <file> <path>` | — | Resolve a short link from a JSON backup and exit |
 
-## Why HTTP is Recommended for Tailscale
+## Making `go/link` Work
 
-The whole point of a short link service is typing `go/jira` in your browser's address bar — minimal and fast. This only works over HTTP. Here's why:
+> **"Why can't I just type `go/jira`?"** — You can, but two things must be true: the name `go` must **resolve** to the server's IP, and the server must be listening on **HTTP port 80**. This section explains both.
 
-Tailscale HTTPS certs are issued for the FQDN (e.g. `go.example.ts.net`), not the bare name `go`. If you only have an HTTPS listener, typing `go/jira` fails — the browser tries HTTPS, the cert doesn't match `go`, and there's nothing to fall back to. You'd have to type `go.example.ts.net/jira` every time, which defeats the purpose.
+### DNS: How `go` resolves to an IP address
 
-**Recommended:** Use `ts+http://:80` as your Tailscale listener. Your tailnet traffic is already encrypted by WireGuard, so HTTPS adds no real security benefit. This gives you the clean `go/link` experience.
+Before the browser can connect to anything, the name `go` has to resolve to an IP address. How that happens depends on your setup:
 
-**Optional:** If you also want HTTPS for the FQDN (e.g. for bookmarking `https://go.example.ts.net`), add both listeners. The HTTP listener catches `go/link` requests, and HTTPS serves the FQDN:
+**Tailscale (automatic)** — Tailscale's MagicDNS handles this for you. When you set `ts-hostname = "go"`, every device on your tailnet can resolve `go` to GoLinx's tailnet IP automatically. No DNS configuration needed on any client.
+
+**LAN without Tailscale** — There is no magic. You need to make `go` resolve to the server's LAN IP yourself. Options:
+
+| Approach | Scope | Setup |
+|----------|-------|-------|
+| **Local DNS server** (Pi-hole, Unbound, AD DNS, router DNS) | Whole network — all devices resolve `go` automatically | Add an A record: `go` → `192.168.1.x` on your DNS server |
+| **Router DNS** — many home routers let you add custom DNS entries | Whole network | Router admin panel → DNS / hostname mapping |
+| **Hosts file** (`/etc/hosts` or `C:\Windows\System32\drivers\etc\hosts`) | Single machine only | Add `192.168.1.x go` to each machine's hosts file |
+
+Local DNS is the only practical option for more than a couple of machines. Hosts files don't scale — every client needs a manual entry, and any IP change means updating all of them.
+
+> **Tip:** If you can't set up DNS right away, `http://192.168.1.x/jira` always works — but at that point you're typing an IP address, which defeats the purpose of short links.
+
+### HTTPS: Why `go/link` requires HTTP
+
+> **"Why not just use HTTPS?"** — This is the most common question from new deployments. Short answer: you **need** HTTP for `go/link` to work. HTTPS cannot serve bare hostnames, and this is not a GoLinx limitation — it's how TLS certificates work.
+
+1. **Certs require a domain** — TLS certificates (Let's Encrypt, Tailscale, any CA) are issued for fully-qualified domain names like `go.example.ts.net`. They cannot be issued for a bare name like `go`. This is a fundamental PKI constraint — no CA will sign a certificate for a single-label hostname. There is no server-side setting, whitelist, or SAN entry that can override this.
+
+2. **Browsers try HTTPS first** — When you type `go/jira`, modern browsers attempt `https://go/jira`. The server has no valid cert for `go`, so the TLS handshake fails. The browser then falls back to `http://go/jira` on port 80.
+
+3. **Without an HTTP listener, there's nothing to fall back to** — If you only run HTTPS, the fallback fails and the user gets a connection error. The only way to reach the service would be typing `https://go.example.ts.net/jira` every time — defeating the purpose entirely.
+
+### The recommendation
+
+**Use `ts+http://:80`** (Tailscale) or **`http://:80`** (LAN) as your listener. This is not a security compromise:
+
+- **Tailscale:** Your tailnet traffic is already encrypted by WireGuard end-to-end. HTTPS on top of WireGuard is double-encryption with no security benefit.
+- **LAN:** Traffic stays on your local network. If you need encryption on LAN, use HTTPS for the FQDN and HTTP for the bare hostname (see table below).
+- **Industry standard:** Every go-link service in production (Google's original, Tailscale's [golink](https://github.com/tailscale/golink), GoLinks SaaS) uses HTTP for the bare hostname.
+
+**Optionally add HTTPS** if you also want the FQDN to work (e.g. for bookmarks or sharing `https://go.example.ts.net/jira`):
 
 | HTTPS listener | Required HTTP listener | Why |
 |----------------|----------------------|-----|
-| `ts+https://:443` | `ts+http://:80` | `go/link` falls back to HTTP since the cert only covers the FQDN |
-| `https://:443;cert=...;key=...` | `http://:80` | Same fallback behavior for LAN hostnames |
+| `ts+https://:443` | `ts+http://:80` | `go/link` needs HTTP — the cert only covers the FQDN |
+| `https://:443;cert=...;key=...` | `http://:80` | Same — bare hostnames can't use HTTPS |
 
-## HTTPS Redirect
+### Browser notes
 
-When an HTTPS listener exists (`https://` or `ts+https://`), its corresponding HTTP listener (`http://` or `ts+http://`) automatically redirects requests to the HTTPS equivalent. If `ts+https://` is configured but the tailnet does not support HTTPS certificates, GoLinx exits with an error.
+- **Chrome** — Handles `go/link` automatically. No configuration needed.
+- **Firefox** — May treat `go/link` as a search query. Fix: open `about:config` and add `browser.fixup.domainwhitelist.go` as a boolean set to `true`.
+- **Safari** — Works automatically on most configurations.
 
-HSTS (`Strict-Transport-Security`) headers are set only for fully-qualified domain names (hostnames containing a dot). This avoids HSTS issues with `localhost`, bare hostnames like `go`, and IPv6 addresses.
+### HTTPS redirect behavior
 
-> **Note:** If you use `curl` to interact with the API over HTTP when HTTPS is enabled, use the `-L` flag to follow redirects, or your request will return an empty response. We recommend always using `-L` regardless of current HTTPS status.
+When an HTTPS listener is active, its corresponding HTTP listener automatically redirects FQDN requests to HTTPS. Bare hostname requests (like `go/link`) are **not** redirected — they are served directly over HTTP so the short link works.
+
+HSTS (`Strict-Transport-Security`) headers are set only for fully-qualified domain names (hostnames containing a dot). This prevents the browser from caching an HSTS policy for `go` — which would permanently break `go/link` access.
+
+> **Note:** If you use `curl` over HTTP when HTTPS is enabled, use the `-L` flag to follow redirects, or FQDN requests will return an empty response.
 
 ## Permissions
 
