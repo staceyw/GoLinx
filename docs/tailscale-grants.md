@@ -8,7 +8,7 @@ This guide walks you through configuring GoLinx admin users via Tailscale ACL gr
 
 ## Overview
 
-GoLinx reads admin status from **Tailscale grants**, not from a config file. When a user connects, GoLinx checks their Tailscale identity for the `tailscale.com/cap/golinx` capability with `"admin": true`. This is configured entirely in the Tailscale Admin Console — no GoLinx restart needed when you add or remove admins.
+GoLinx reads admin status from **Tailscale grants**, not from a config file. When a user connects, GoLinx checks their Tailscale identity for the `golinx.dev/cap/golinx` capability with `"admin": true`. This is configured entirely in the Tailscale Admin Console — no GoLinx restart needed when you add or remove admins.
 
 ---
 
@@ -85,7 +85,7 @@ Add two grants to your ACL policy file:
       "src": ["group:golinx-admins"],
       "dst": ["tag:golinx"],
       "app": {
-        "tailscale.com/cap/golinx": [{ "admin": true }]
+        "golinx.dev/cap/golinx": [{ "admin": true }]
       }
     }
   ]
@@ -151,7 +151,7 @@ Here's a minimal but complete ACL policy file with GoLinx grants:
       "src": ["group:golinx-admins"],
       "dst": ["tag:golinx"],
       "app": {
-        "tailscale.com/cap/golinx": [{ "admin": true }]
+        "golinx.dev/cap/golinx": [{ "admin": true }]
       }
     }
   ]

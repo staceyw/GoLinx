@@ -112,12 +112,12 @@ var db *SQLiteDB
 var localClient *local.Client
 
 // peerCaps defines the shape of the app capability object in Tailscale grants.
-// Grant example: {"src":["group:admins"],"dst":["tag:golinx"],"app":{"tailscale.com/cap/golinx":[{"admin":true}]}}
+// Grant example: {"src":["group:admins"],"dst":["tag:golinx"],"app":{"golinx.dev/cap/golinx":[{"admin":true}]}}
 type peerCaps struct {
 	Admin bool `json:"admin"`
 }
 
-const golinxCapName tailcfg.PeerCapability = "tailscale.com/cap/golinx"
+const golinxCapName tailcfg.PeerCapability = "golinx.dev/cap/golinx"
 
 // currentUser returns the login name and admin status of the user making the request.
 // Defaults to Tailscale WhoIs lookup; overridden in Run() for non-ts modes.
