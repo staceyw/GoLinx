@@ -9,7 +9,7 @@
 # Host must be empty or an IP address — no hostnames.
 
 listen = [
-  # "http://:8080",
+  "http://:80",
   # "https://:443;cert=./cert.pem;key=./key.pem",
   # "ts+https://:443",
   # "ts+http://:80",

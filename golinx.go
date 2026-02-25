@@ -46,6 +46,9 @@ var logoSVG []byte
 //go:embed docs/help.md
 var helpMD []byte
 
+//go:embed docs/dest-url-help.md
+var destURLHelpMD []byte
+
 // logger is the structured application logger (WARN/ERROR). The default log
 // package is silenced in non-verbose mode so tsnet noise is suppressed, while
 // this slog-based logger remains active at all times. Informational startup
@@ -2282,15 +2285,23 @@ func serveExport(w http.ResponseWriter, r *http.Request) {
 }
 
 var helpPageRendered string
+var destURLHelpHTML string
 
 func init() {
-	var buf bytes.Buffer
 	md := goldmark.New(goldmark.WithExtensions(extension.Table))
+	var buf bytes.Buffer
 	if err := md.Convert(helpMD, &buf); err != nil {
 		panic("render help.md: " + err.Error())
 	}
 	versionDiv := `<div style="text-align:center;padding:20px 0 0;color:#6c7086;font-size:0.8rem;border-top:1px solid var(--panel-border);margin-top:24px;">GoLinx ` + Version + `</div>`
 	helpPageRendered = helpPagePrefix + buf.String() + versionDiv + helpPageSuffix
+
+	buf.Reset()
+	if err := md.Convert(destURLHelpMD, &buf); err != nil {
+		panic("render dest-url-help.md: " + err.Error())
+	}
+	destURLHelpHTML = buf.String()
+	pageTemplate = strings.Replace(pageTemplate, "<!--DEST_URL_HELP-->", destURLHelpHTML, 1)
 }
 
 const helpPagePrefix = `<!DOCTYPE html>
@@ -2678,6 +2689,21 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .mbtn-danger:hover { background: var(--btn-danger-hover); }
 .mbtn-cancel { background: var(--panel-btn-bg); color: var(--panel-btn-text); }
 .mbtn-cancel:hover { background: var(--panel-btn-hover); }
+.dest-help-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--input-border);
+  background: transparent; color: var(--panel-path-text); font-size: 0.65rem;
+  cursor: pointer; padding: 0; margin-left: 4px; vertical-align: middle;
+  line-height: 1;
+}
+.dest-help-btn:hover { background: var(--input-border); color: var(--panel-text); }
+.dest-help-content table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.78rem; }
+.dest-help-content th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--input-border); color: var(--panel-path-text); font-weight: 600; }
+.dest-help-content td { padding: 4px 8px; border-bottom: 1px solid var(--input-border); }
+.dest-help-content code { background: var(--input-bg); padding: 1px 4px; border-radius: 3px; font-size: 0.76rem; }
+.dest-help-content h2 { font-size: 0.9rem; margin: 16px 0 6px; color: var(--panel-heading); }
+.dest-help-content h3 { font-size: 0.82rem; margin: 12px 0 4px; color: var(--panel-heading); }
+.dest-help-content p { margin: 6px 0; }
 
 .form-row { margin-bottom: 12px; }
 .form-row:last-child { margin-bottom: 0; }
@@ -2871,7 +2897,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
         <input type="hidden" id="newColor" value="" />
       </div>
       <div id="newLinkFields">
-        <div class="form-row"><label>Destination URL</label><input type="text" id="newDestURL" placeholder="https://... or local-name" spellcheck="false" /></div>
+        <div class="form-row"><label>Destination URL <button type="button" class="dest-help-btn" onclick="openDestHelp()" title="URL format help">?</button></label><input type="text" id="newDestURL" placeholder="https://... or local-name" spellcheck="false" /></div>
         <div class="form-row"><label>Description</label><input type="text" id="newDescription" placeholder="Optional description" /></div>
         <div class="form-row"><label>Owner</label><input type="text" id="newOwner" placeholder="Optional owner" spellcheck="false" /></div>
       </div>
@@ -2923,7 +2949,7 @@ body { display: flex; flex-direction: column; height: 100vh; }
         <input type="hidden" id="editColor" value="" />
       </div>
       <div id="editLinkFields">
-        <div class="form-row"><label>Destination URL</label><input type="text" id="editDestURL" spellcheck="false" /></div>
+        <div class="form-row"><label>Destination URL <button type="button" class="dest-help-btn" onclick="openDestHelp()" title="URL format help">?</button></label><input type="text" id="editDestURL" spellcheck="false" /></div>
         <div class="form-row"><label>Description</label><input type="text" id="editDescription" /></div>
         <div class="form-row"><label>Owner</label><input type="text" id="editOwner" spellcheck="false" /></div>
       </div>
@@ -2974,6 +3000,19 @@ body { display: flex; flex-direction: column; height: 100vh; }
     <div class="modal-actions">
       <button class="mbtn-cancel" onclick="closeDeleteModal()">Cancel</button>
       <button class="mbtn-danger" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Destination URL Help Modal -->
+<div id="destHelpOverlay" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:750px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title">Destination URL Help</div>
+    <div class="modal-body dest-help-content" style="overflow-y:auto;padding-right:24px">
+      <!--DEST_URL_HELP-->
+    </div>
+    <div class="modal-actions">
+      <button class="mbtn-cancel" onclick="closeDestHelp()">Close</button>
     </div>
   </div>
 </div>
@@ -3847,6 +3886,13 @@ function closeDeleteModal() {
   deletingLinxId = null;
 }
 
+function openDestHelp() {
+  document.getElementById('destHelpOverlay').classList.remove('hidden');
+}
+function closeDestHelp() {
+  document.getElementById('destHelpOverlay').classList.add('hidden');
+}
+
 function confirmDelete() {
   if (!deletingLinxId) return;
   fetch('/api/linx/' + deletingLinxId, { method: 'DELETE' }).then(function(r) {
@@ -3888,6 +3934,7 @@ function trapFocus(overlay, e) {
 // Keyboard shortcuts
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    if (!document.getElementById('destHelpOverlay').classList.contains('hidden')) { closeDestHelp(); return; }
     if (!document.getElementById('newOverlay').classList.contains('hidden')) closeNewLinxModal();
     else if (!document.getElementById('editOverlay').classList.contains('hidden')) closeEditModal();
     else if (!document.getElementById('deleteOverlay').classList.contains('hidden')) closeDeleteModal();

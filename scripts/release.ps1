@@ -1,9 +1,11 @@
 # Cross-compile, bundle ZIPs, and create a GitHub release.
 # Usage:  .\scripts\release.ps1 v0.2.0
+#         .\scripts\release.ps1 v0.2.0 -DryRun   # build + zip only, no upload
 
 param(
     [Parameter(Position=0)]
-    [string]$Tag
+    [string]$Tag,
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,6 +101,15 @@ $assets = @()
 foreach ($t in $targets) {
     $assets += Join-Path $dist $t.Out
     $assets += Join-Path $dist $t.Zip
+}
+
+if ($DryRun) {
+    Write-Host ""
+    Write-Host "Dry run complete. Artifacts in: $dist"
+    Write-Host "  Binaries: $($targets.Count)"
+    Write-Host "  ZIPs:     $($targets.Count)"
+    Write-Host "Re-run without -DryRun to upload to GitHub."
+    return
 }
 
 # Create release

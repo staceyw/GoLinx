@@ -6,7 +6,7 @@ Everything in GoLinx is a **Linx**. The linx type determines its behavior:
 
 | Type | Badge | Behavior |
 |------|-------|----------|
-| Link | — | Redirects to the destination URL |
+| Linx | — | Redirects to the destination URL |
 | Employee | Emp | Shows a profile page |
 | Customer | Cus | Shows a profile page |
 | Vendor | Ven | Shows a profile page |
