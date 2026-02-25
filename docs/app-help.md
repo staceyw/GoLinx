@@ -81,7 +81,7 @@ Append `+` to any short name to view its detail page instead of redirecting. For
 
 Links automatically pass through extra path segments. For example, if `/github` points to `https://github.com`, then `/github/anthropics/claude` redirects to `https://github.com/anthropics/claude`. Query parameters are also forwarded.
 
-Advanced users can use Go template syntax in destination URLs: `{{.Path}}`, `{{.User}}`, `{{.Query}}`, and functions like `PathEscape`, `QueryEscape`, `ToLower`, `ToUpper`, `TrimPrefix`, `TrimSuffix`, `Match`.
+Advanced users can use Go template syntax in destination URLs — click the **?** button next to the Destination URL field for details.
 
 ## Local Aliases
 
@@ -112,9 +112,7 @@ GoLinx enforces owner-based permissions:
 - **Non-owners** see a readonly "Linx Info" modal — same fields, but disabled with no Save button.
 - **Double-click** on a linx opens Edit if you own it, or Linx Info if you don't.
 - **Localhost auto-admin** — requests from 127.0.0.1 or ::1 always have full access, no toggle needed.
-- **User permissions** — the `user-perms` config controls what non-localhost LAN users can do: `["add", "update", "delete"]` for full access, `["add"]` for create-only, `[]` for read-only. Defaults to `["*"]` (full access). Localhost and Tailscale users are not affected.
-- **Admin mode** — users listed in the `ts-admins` config can toggle admin mode via the header switch to bypass ownership checks.
-- **Local mode** (no Tailscale) — all users share the `local@hostname` identity. Localhost gets auto-admin for all linx.
+- **Admin mode** — users with the Tailscale admin grant can toggle admin mode via the header switch to bypass ownership checks.
 
 Permissions are enforced server-side — the API returns 403 Forbidden for unauthorized actions.
 
@@ -125,65 +123,3 @@ Person linx support avatar images. Upload via the Edit modal — pick a file and
 ## Settings
 
 Theme, view mode, and sort mode are automatically saved and restored on your next visit.
-
-## Listener URIs
-
-Use `--listen` (repeatable) with a URI to configure listeners:
-
-- `--listen "http://:8080"` — plain HTTP
-- `--listen "https://:443;cert=c.pem;key=k.pem"` — HTTPS with your own certificates
-- `--listen "ts+https://:443"` — Tailscale HTTPS (auto certs, requires `--ts-hostname`)
-- `--listen "ts+http://:80"` — Tailscale plain HTTP (requires `--ts-hostname`)
-
-Combine multiple `--listen` flags for mixed access.
-
-## HTTPS Redirect
-
-When an HTTPS listener exists (`https://` or `ts+https://`), its corresponding HTTP listener (`http://` or `ts+http://`) automatically redirects requests to HTTPS.
-
-**Note:** If you use `curl` to interact with the API over HTTP when HTTPS is enabled, use the `-L` flag to follow redirects, or your request will return an empty response. We recommend always using `-L` regardless of current HTTPS status.
-
-## Config File
-
-Place a `golinx.toml` in the working directory to avoid repeating flags:
-
-```toml
-listen = [
-  "ts+https://:443",
-  "ts+http://:80",
-  "http://:8080",
-]
-ts-hostname = "go"
-verbose = false
-max-resolve-depth = 5
-# ts-dir = "/data/tsnet"  # default: OS config dir (e.g. ~/.config/tsnet-golinx)
-# user-perms = ["*"]  # LAN user permissions: "add", "update", "delete", or ["*"] for all
-```
-
-Command-line flags override config file values (with a warning).
-
-## Export & Import
-
-- **Export** — visit `/.export` to download all linx as `links.json`
-- **Import** — run `golinx --import links.json` to load linx from a backup (skips existing short names)
-- **Resolve** — run `golinx --resolve links.json shortname/path` to test link resolution from a backup without starting the server
-
-## API
-
-```
-GET    /api/linx              List linx (optional ?type= filter)
-POST   /api/linx              Create linx
-PUT    /api/linx/{id}         Update linx
-DELETE /api/linx/{id}         Delete linx
-POST   /api/linx/{id}/avatar  Upload avatar
-GET    /api/linx/{id}/avatar  Serve avatar
-GET    /api/settings           Get setting (?key=)
-PUT    /api/settings           Save setting
-GET    /api/whoami             Current user, hostname, and Tailscale mode
-GET    /.addlinx               Open the New Linx dialog
-GET    /.help                  This help page
-GET    /.export                Export all linx as JSON
-GET    /.ping/{host}           TCP ping (host or host:port)
-GET    /.whoami                WhoIs terminal (Tailscale user/node info)
-GET    /{shortname}            Redirect or profile page
-```

@@ -43,7 +43,7 @@ var faviconSVG []byte
 //go:embed static/logo.svg
 var logoSVG []byte
 
-//go:embed docs/help.md
+//go:embed docs/app-help.md
 var helpMD []byte
 
 //go:embed docs/dest-url-help.md
@@ -111,17 +111,32 @@ var db *SQLiteDB
 
 var localClient *local.Client
 
-// currentUser returns the login name of the user making the request.
+// peerCaps defines the shape of the app capability object in Tailscale grants.
+// Grant example: {"src":["group:admins"],"dst":["tag:golinx"],"app":{"tailscale.com/cap/golinx":[{"admin":true}]}}
+type peerCaps struct {
+	Admin bool `json:"admin"`
+}
+
+const golinxCapName tailcfg.PeerCapability = "tailscale.com/cap/golinx"
+
+// currentUser returns the login name and admin status of the user making the request.
 // Defaults to Tailscale WhoIs lookup; overridden in Run() for non-ts modes.
-var currentUser = func(r *http.Request) (string, error) {
+var currentUser = func(r *http.Request) (login string, admin bool, err error) {
 	if localClient == nil {
-		return "", fmt.Errorf("no local client")
+		return "", false, fmt.Errorf("no local client")
 	}
 	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return whois.UserProfile.LoginName, nil
+	login = whois.UserProfile.LoginName
+	caps, _ := tailcfg.UnmarshalCapJSON[peerCaps](whois.CapMap, golinxCapName)
+	for _, cap := range caps {
+		if cap.Admin {
+			return login, true, nil
+		}
+	}
+	return login, false, nil
 }
 
 // canEdit returns true if the request user is allowed to modify the linx.
@@ -134,14 +149,14 @@ func canEdit(r *http.Request, linxOwner string) bool {
 	if linxOwner == "" {
 		return true
 	}
-	login, err := currentUser(r)
+	login, admin, err := currentUser(r)
 	if err != nil {
 		return false
 	}
 	if login == linxOwner {
 		return true
 	}
-	if isAdmin(login) {
+	if admin {
 		if mode, _ := db.GetSetting(login, "adminMode"); mode == "true" {
 			return true
 		}
@@ -413,21 +428,10 @@ type config struct {
 	TailscaleHost   string   `toml:"ts-hostname"`
 	TailscaleDir    string   `toml:"ts-dir"`
 	MaxResolveDepth int      `toml:"max-resolve-depth"`
-	Admins          []string `toml:"ts-admins"`
 	UserPerms       []string `toml:"user-perms"`
 }
 
-var adminEmails []string
 var userPerms = []string{"*"} // default: full access for local users
-
-func isAdmin(login string) bool {
-	for _, a := range adminEmails {
-		if strings.EqualFold(a, login) {
-			return true
-		}
-	}
-	return false
-}
 
 const configFile = "golinx.toml"
 
@@ -609,7 +613,6 @@ func Run() error {
 		*maxResolveDepth = cfg.MaxResolveDepth
 	}
 	if hasConfig {
-		adminEmails = cfg.Admins
 		if cfg.UserPerms != nil {
 			userPerms = cfg.UserPerms
 		}
@@ -669,16 +672,16 @@ func Run() error {
 	if hasTS && hasLocal {
 		whoisUser := currentUser
 		fallback := localIdentity()
-		currentUser = func(r *http.Request) (string, error) {
-			if login, err := whoisUser(r); err == nil {
-				return login, nil
+		currentUser = func(r *http.Request) (string, bool, error) {
+			if login, admin, err := whoisUser(r); err == nil {
+				return login, admin, nil
 			}
-			return fallback, nil
+			return fallback, false, nil
 		}
 	} else if !hasTS {
 		identity := localIdentity()
-		currentUser = func(r *http.Request) (string, error) {
-			return identity, nil
+		currentUser = func(r *http.Request) (string, bool, error) {
+			return identity, false, nil
 		}
 	}
 
@@ -1045,11 +1048,11 @@ func apiLinxCreate(w http.ResponseWriter, r *http.Request) {
 	payload.Owner = strings.TrimSpace(payload.Owner)
 	if localClient != nil {
 		// On Tailscale, always set owner to the authenticated user.
-		if login, err := currentUser(r); err == nil {
+		if login, _, err := currentUser(r); err == nil {
 			payload.Owner = login
 		}
 	} else if payload.Owner == "" {
-		if login, err := currentUser(r); err == nil {
+		if login, _, err := currentUser(r); err == nil {
 			payload.Owner = login
 		}
 	}
@@ -1186,7 +1189,7 @@ func apiLinxUpdate(w http.ResponseWriter, r *http.Request) {
 	payload.Owner = strings.TrimSpace(payload.Owner)
 	// Claim unowned linx: if the linx had no owner, set to current user.
 	if existing.Owner == "" && payload.Owner == "" {
-		if login, err := currentUser(r); err == nil {
+		if login, _, err := currentUser(r); err == nil {
 			payload.Owner = login
 		}
 	}
@@ -1277,7 +1280,7 @@ func apiLinxDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func settingsUser(r *http.Request) string {
-	if login, err := currentUser(r); err == nil && login != "" {
+	if login, _, err := currentUser(r); err == nil && login != "" {
 		return login
 	}
 	return "default"
@@ -1318,7 +1321,7 @@ func apiSettingsPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiWhoAmI(w http.ResponseWriter, r *http.Request) {
-	login, err := currentUser(r)
+	login, admin, err := currentUser(r)
 	if err != nil {
 		http.Error(w, "unknown user", http.StatusForbidden)
 		return
@@ -1332,7 +1335,7 @@ func apiWhoAmI(w http.ResponseWriter, r *http.Request) {
 	if isLocalUser(r) {
 		perms = userPerms
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"login": login, "hostname": host, "tsMode": localClient != nil, "isAdmin": isAdmin(login) || localhost, "localhostAdmin": localhost, "perms": perms})
+	writeJSON(w, http.StatusOK, map[string]any{"login": login, "hostname": host, "tsMode": localClient != nil, "isAdmin": admin || localhost, "localhostAdmin": localhost, "perms": perms})
 }
 
 func apiLinxAvatarUpload(w http.ResponseWriter, r *http.Request) {
@@ -1503,7 +1506,7 @@ func serveRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, _ := currentUser(r)
+	login, _, _ := currentUser(r)
 	env := expandEnv{
 		Now:   time.Now().UTC(),
 		Path:  remainder,
@@ -2055,7 +2058,7 @@ func serveWhoAmISSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	if localClient == nil {
-		identity, _ := currentUser(r)
+		identity, _, _ := currentUser(r)
 		sendSSE(w, flusher, "status", "WHOAMI (local mode)")
 		sendSSE(w, flusher, "info", "Identity:  "+identity)
 		sendSSE(w, flusher, "info", "Remote:    "+r.RemoteAddr)

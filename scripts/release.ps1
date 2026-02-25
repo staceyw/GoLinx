@@ -96,18 +96,38 @@ foreach ($t in $targets) {
 
 Remove-Item $readme -Force
 
-# Collect all assets (binaries + ZIPs)
+# Copy common files as standalone release assets (used by install scripts)
+$commonReadme = Join-Path $dist "README.txt"
+@"
+GoLinx - URL shortener and people directory
+
+Quick Start:
+  1. Copy golinx.example.toml to golinx.toml
+  2. Edit golinx.toml - add at least one listener (e.g. http://:8080)
+  3. Run:  ./golinx
+  4. Open: http://localhost:8080
+
+Full documentation: https://github.com/staceyw/GoLinx
+"@ | Set-Content -Path $commonReadme -Encoding UTF8
+
+$commonConfig = Join-Path $dist "golinx.example.toml"
+Copy-Item $example $commonConfig
+
+# Collect all assets (binaries + ZIPs + common files)
 $assets = @()
 foreach ($t in $targets) {
     $assets += Join-Path $dist $t.Out
     $assets += Join-Path $dist $t.Zip
 }
+$assets += $commonReadme
+$assets += $commonConfig
 
 if ($DryRun) {
     Write-Host ""
     Write-Host "Dry run complete. Artifacts in: $dist"
     Write-Host "  Binaries: $($targets.Count)"
     Write-Host "  ZIPs:     $($targets.Count)"
+    Write-Host "  Common:   README.txt, golinx.example.toml"
     Write-Host "Re-run without -DryRun to upload to GitHub."
     return
 }
@@ -116,6 +136,18 @@ if ($DryRun) {
 Write-Host ""
 Write-Host "Creating release $Tag ..."
 $notes = @"
+## Quick Install
+
+**Linux / macOS:**
+``````
+curl -fsSL https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.sh | bash
+``````
+
+**Windows (PowerShell):**
+``````
+iex (irm https://raw.githubusercontent.com/staceyw/GoLinx/main/scripts/install.ps1)
+``````
+
 ## Downloads
 
 | File | Description |
@@ -131,7 +163,7 @@ $notes = @"
 | ``golinx-linux-arm64`` | Linux ARM64 / Raspberry Pi (binary only) |
 | ``golinx-darwin-arm64`` | macOS Apple Silicon (binary only) |
 
-> **Tip:** ZIP bundles include ``golinx.example.toml`` and a quick-start README.
+> **Tip:** ZIP bundles include ``golinx.example.toml`` and a quick-start README. The install scripts download these files individually — no unzip needed.
 "@
 gh release create $Tag @assets --title "GoLinx $Tag" --generate-notes --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

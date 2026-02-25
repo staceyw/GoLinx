@@ -30,8 +30,8 @@ verbose = false
 # and the loop detection depth when creating/updating links.
 # max-resolve-depth = 5
 
-# Admin users — Tailscale logins that can toggle admin mode to bypass ownership checks.
-# ts-admins = ["alice@example.com", "bob@example.com"]
+# Admin users — configured via Tailscale ACL grants (not in this file).
+# See docs/tailscale-grants.md for setup instructions.
 
 # Permissions for non-localhost local users (default: ["*"] = full access).
 # Controls what LAN users can do when accessing via the local HTTP listener.

@@ -27,8 +27,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	*maxResolveDepth = 5
-	currentUser = func(r *http.Request) (string, error) {
-		return "test@example.com", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "test@example.com", false, nil
 	}
 	code := m.Run()
 	db.db.Close()
@@ -886,8 +886,8 @@ func TestLocalhostAutoAdmin(t *testing.T) {
 
 	origCurrentUser := currentUser
 	defer func() { currentUser = origCurrentUser }()
-	currentUser = func(r *http.Request) (string, error) {
-		return "local@testhost", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "local@testhost", false, nil
 	}
 
 	t.Run("localhost can edit others linx", func(t *testing.T) {
@@ -904,8 +904,8 @@ func TestLocalhostAutoAdmin(t *testing.T) {
 	})
 	t.Run("non-localhost can edit own linx", func(t *testing.T) {
 		r := &http.Request{RemoteAddr: "192.168.1.100:54321"}
-		currentUser = func(r *http.Request) (string, error) {
-			return "other@example.com", nil
+		currentUser = func(r *http.Request) (string, bool, error) {
+			return "other@example.com", false, nil
 		}
 		if !canEdit(r, "other@example.com") {
 			t.Error("owner should always be able to edit own linx")
@@ -913,11 +913,50 @@ func TestLocalhostAutoAdmin(t *testing.T) {
 	})
 }
 
+func TestGrantsAdmin_CanEdit(t *testing.T) {
+	resetDB(t)
+	db.Save(&Linx{Type: LinxTypeLink, ShortName: "priv", DestinationURL: "https://example.com", Owner: "other@example.com"})
+
+	origCurrentUser := currentUser
+	defer func() { currentUser = origCurrentUser }()
+
+	t.Run("grant admin with adminMode can edit others linx", func(t *testing.T) {
+		currentUser = func(r *http.Request) (string, bool, error) {
+			return "admin@example.com", true, nil
+		}
+		// Admin mode must be toggled on to bypass ownership.
+		db.PutSetting("admin@example.com", "adminMode", "true")
+		r := &http.Request{RemoteAddr: "100.64.0.1:54321"}
+		if !canEdit(r, "other@example.com") {
+			t.Error("grant admin with adminMode should be able to edit others linx")
+		}
+	})
+	t.Run("grant admin without adminMode cannot edit others linx", func(t *testing.T) {
+		currentUser = func(r *http.Request) (string, bool, error) {
+			return "admin@example.com", true, nil
+		}
+		db.PutSetting("admin@example.com", "adminMode", "false")
+		r := &http.Request{RemoteAddr: "100.64.0.1:54321"}
+		if canEdit(r, "other@example.com") {
+			t.Error("grant admin without adminMode should not bypass ownership")
+		}
+	})
+	t.Run("non-admin cannot edit others linx", func(t *testing.T) {
+		currentUser = func(r *http.Request) (string, bool, error) {
+			return "regular@example.com", false, nil
+		}
+		r := &http.Request{RemoteAddr: "100.64.0.1:54321"}
+		if canEdit(r, "other@example.com") {
+			t.Error("non-admin should not be able to edit others linx")
+		}
+	})
+}
+
 func TestAPI_WhoAmI_LocalhostAdmin(t *testing.T) {
 	origCurrentUser := currentUser
 	defer func() { currentUser = origCurrentUser }()
-	currentUser = func(r *http.Request) (string, error) {
-		return "local@testhost", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "local@testhost", false, nil
 	}
 	mux := serveHandler()
 
@@ -993,8 +1032,8 @@ func TestUserPerms_Create(t *testing.T) {
 	origUser := currentUser
 	defer func() { userPerms = origPerms; currentUser = origUser }()
 
-	currentUser = func(r *http.Request) (string, error) {
-		return "local@testhost", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "local@testhost", false, nil
 	}
 	mux := serveHandler()
 
@@ -1042,8 +1081,8 @@ func TestUserPerms_Update(t *testing.T) {
 	origUser := currentUser
 	defer func() { userPerms = origPerms; currentUser = origUser }()
 
-	currentUser = func(r *http.Request) (string, error) {
-		return "local@testhost", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "local@testhost", false, nil
 	}
 	lnx := &Linx{Type: LinxTypeLink, ShortName: "uptest", DestinationURL: "https://example.com", Owner: "local@testhost"}
 	id, _ := db.Save(lnx)
@@ -1081,8 +1120,8 @@ func TestUserPerms_Delete(t *testing.T) {
 	origUser := currentUser
 	defer func() { userPerms = origPerms; currentUser = origUser }()
 
-	currentUser = func(r *http.Request) (string, error) {
-		return "local@testhost", nil
+	currentUser = func(r *http.Request) (string, bool, error) {
+		return "local@testhost", false, nil
 	}
 	lnx := &Linx{Type: LinxTypeLink, ShortName: "deltest", DestinationURL: "https://example.com", Owner: "local@testhost"}
 	id, _ := db.Save(lnx)
