@@ -53,6 +53,7 @@ Open `http://localhost` — done. For persistent configuration, copy `golinx.exa
 - **Profile pages** with avatar, contact info, and social links
 - **Path passthrough** — `/github/org/repo` resolves through `/github` to the full URL
 - **Go template URLs** — `{{.Path}}`, `{{.User}}`, `{{.Query}}` for dynamic routing
+- **Soft delete** — deleted items are retained for 30 days with one-click restore at `/.deleted`
 - **Tailscale integration** — runs on your tailnet via tsnet with automatic HTTPS and user identification
 - **Single binary** — all HTML/CSS/JS/help embedded, no external assets or build tools
 

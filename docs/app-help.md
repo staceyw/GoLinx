@@ -132,6 +132,14 @@ GoLinx enforces owner-based permissions:
 
 Permissions are enforced server-side — the API returns 403 Forbidden for unauthorized actions.
 
+## Soft Delete
+
+Deleting a linx is a soft delete — the item is hidden from the main grid but retained in the database for a configurable period (default: 30 days). After the retention period, items are permanently purged.
+
+Visit `/.deleted` to see all soft-deleted items. Each row has an **Undelete** button to restore the item back to the main grid. Only the owner (or admin) can restore a deleted item.
+
+If you create a new linx with the same short name as a deleted one, the deleted item is permanently removed to free the name.
+
 ## Avatars
 
 Person linx support avatar images. Upload via the Edit modal — pick a file and the preview updates immediately. Maximum file size is 5 MB.

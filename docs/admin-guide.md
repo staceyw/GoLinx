@@ -99,6 +99,7 @@ listen = [
 ts-hostname = "go"
 verbose = false
 max-resolve-depth = 5
+# delete-retention = 30  # days to keep deleted items (0 = keep forever)
 # ts-dir = "/data/tsnet"  # default: OS config dir (e.g. ~/.config/tsnet-golinx)
 # user-perms = ["*"]  # LAN user permissions: "add", "update", "delete", or ["*"] for all
 ```
@@ -110,7 +111,7 @@ With a config file, just run `./golinx` — no flags needed.
 GoLinx always reads `golinx.toml` if it exists in the working directory, even when CLI flags are provided. The merge rules:
 
 - **`--listen`** — CLI listeners **replace** config listeners entirely (they are not combined). If no `--listen` flags are given, the config file's `listen` array is used.
-- **All other flags** (`--verbose`, `--ts-hostname`, `--ts-dir`, `--max-resolve-depth`, `--user-perms`) — a CLI flag wins only if explicitly set. Otherwise the config file value is used.
+- **All other flags** (`--verbose`, `--ts-hostname`, `--ts-dir`, `--max-resolve-depth`, `--delete-retention`, `--user-perms`) — a CLI flag wins only if explicitly set. Otherwise the config file value is used.
 - **`--user-perms`** — CLI accepts a comma-separated string (e.g. `--user-perms "add,update"`), config uses an array (e.g. `user-perms = ["add", "update"]`).
 
 If any CLI flags are set and a config file exists, GoLinx prints a warning: `command-line flags override golinx.toml settings`.
@@ -127,6 +128,7 @@ This means `./golinx --listen "http://:80"` still picks up `ts-hostname`, `verbo
 | `--ts-dir` | OS config dir | Tailscale state directory (e.g. `~/.config/tsnet-golinx`) |
 | `--user-perms` | `*` | LAN user permissions: comma-separated `add`,`update`,`delete`, or `*` for all |
 | `--max-resolve-depth` | `5` | Maximum link chain resolution depth |
+| `--delete-retention` | `30` | Days to keep deleted items before purge (0 = keep forever) |
 | `--import <file>` | — | Import linx from a JSON backup and exit |
 | `--resolve <file> <path>` | — | Resolve a short link from a JSON backup and exit |
 
@@ -288,7 +290,8 @@ Tests link resolution from a JSON backup without starting the server. Loads data
 GET    /api/linx              List linx (optional ?type= filter)
 POST   /api/linx              Create linx
 PUT    /api/linx/{id}         Update linx
-DELETE /api/linx/{id}         Delete linx
+DELETE /api/linx/{id}         Delete linx (soft delete)
+POST   /api/linx/{id}/restore Restore a soft-deleted linx
 POST   /api/linx/{id}/avatar  Upload avatar
 GET    /api/linx/{id}/avatar  Serve avatar
 GET    /api/suggest             OpenSearch suggestions (?q=query, top 8 by clicks)
@@ -298,6 +301,7 @@ PUT    /api/settings           Save setting
 GET    /api/whoami             Current user, hostname, and Tailscale mode
 GET    /opensearch.xml          OpenSearch description (browser auto-discovery)
 GET    /.addlinx               Open the New Linx dialog
+GET    /.deleted                Deleted items page (with Undelete)
 GET    /.help                  In-app help page
 GET    /.export                Export all linx as JSON
 GET    /.ping/{host}           TCP ping (host or host:port)
