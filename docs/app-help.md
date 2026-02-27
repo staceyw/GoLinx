@@ -136,6 +136,12 @@ Permissions are enforced server-side — the API returns 403 Forbidden for unaut
 
 Person linx support avatar images. Upload via the Edit modal — pick a file and the preview updates immediately. Maximum file size is 5 MB.
 
+## Browser Autocomplete
+
+GoLinx supports OpenSearch, so your browser can suggest short links as you type in the address bar. When you visit GoLinx, the browser automatically discovers it as a search provider — no setup required.
+
+In Chrome, GoLinx appears under **Settings → Search engine → Manage search engines → Site search**. You can assign a keyword (e.g. `go`) so typing `go jira` in the address bar shows matching suggestions and pressing Enter navigates directly.
+
 ## Settings
 
 Theme, view mode, and sort mode (including Charts) are automatically saved and restored on your next visit.

@@ -1875,3 +1875,96 @@ func TestNormalizeTags(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// OpenSearch
+// ---------------------------------------------------------------------------
+
+func TestOpenSearchXML(t *testing.T) {
+	mux := serveHandler()
+	req := httptest.NewRequest("GET", "/opensearch.xml", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "opensearchdescription+xml") {
+		t.Fatalf("Content-Type = %q, want opensearchdescription+xml", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "/api/suggest") {
+		t.Fatalf("body missing /api/suggest URL")
+	}
+	if !strings.Contains(body, "{searchTerms}") {
+		t.Fatalf("body missing {searchTerms} template")
+	}
+}
+
+func TestAPISuggest(t *testing.T) {
+	resetDB(t)
+	seedTestData(t)
+	mux := serveHandler()
+
+	// Match on short name substring
+	req := httptest.NewRequest("GET", "/api/suggest?q=goo", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var result []json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result) != 4 {
+		t.Fatalf("got %d elements, want 4", len(result))
+	}
+
+	var query string
+	json.Unmarshal(result[0], &query)
+	if query != "goo" {
+		t.Fatalf("query = %q, want %q", query, "goo")
+	}
+
+	var names []string
+	json.Unmarshal(result[1], &names)
+	if len(names) == 0 {
+		t.Fatal("expected at least one suggestion for 'goo'")
+	}
+	found := false
+	for _, n := range names {
+		if n == "google" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'google' in suggestions, got %v", names)
+	}
+
+	// Empty query returns empty arrays
+	req = httptest.NewRequest("GET", "/api/suggest?q=", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("empty query status = %d, want 200", rec.Code)
+	}
+
+	// Person type shows name in description
+	req = httptest.NewRequest("GET", "/api/suggest?q=john", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	json.Unmarshal(rec.Body.Bytes(), &result)
+	var descs []string
+	json.Unmarshal(result[2], &descs)
+	if len(descs) == 0 {
+		t.Fatal("expected suggestion for 'john'")
+	}
+	if !strings.Contains(descs[0], "John") {
+		t.Fatalf("person description = %q, want to contain 'John'", descs[0])
+	}
+}

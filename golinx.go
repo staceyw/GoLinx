@@ -984,6 +984,8 @@ func serveHandler() http.Handler {
 	mux.HandleFunc("GET /api/stats", apiStats)
 	mux.HandleFunc("GET /api/db", apiDBGet)
 	mux.HandleFunc("PUT /api/db", apiDBPut)
+	mux.HandleFunc("GET /api/suggest", apiSuggest)
+	mux.HandleFunc("GET /opensearch.xml", serveOpenSearchXML)
 	mux.HandleFunc("GET /favicon.svg", serveFavicon)
 	mux.HandleFunc("GET /logo.svg", serveLogo)
 	mux.HandleFunc("GET /.addlinx", serveAddLink)
@@ -1969,6 +1971,58 @@ func serveLogo(w http.ResponseWriter, r *http.Request) {
 	w.Write(logoSVG)
 }
 
+func serveOpenSearchXML(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	base := scheme + "://" + r.Host
+
+	w.Header().Set("Content-Type", "application/opensearchdescription+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+  <ShortName>GoLinx</ShortName>
+  <Description>Go links</Description>
+  <InputEncoding>UTF-8</InputEncoding>
+  <Url type="text/html" template="%s/{searchTerms}" />
+  <Url type="application/x-suggestions+json" template="%s/api/suggest?q={searchTerms}" />
+  <Image height="16" width="16" type="image/svg+xml">%s/favicon.svg</Image>
+</OpenSearchDescription>`, base, base, base)
+}
+
+func apiSuggest(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeJSON(w, http.StatusOK, []any{query, []string{}, []string{}, []string{}})
+		return
+	}
+
+	items, err := db.Suggest(query, 8)
+	if err != nil {
+		serverError(w, "suggest query failed", err)
+		return
+	}
+
+	names := make([]string, len(items))
+	descriptions := make([]string, len(items))
+	urls := make([]string, len(items))
+	for i, lnx := range items {
+		names[i] = lnx.ShortName
+		if lnx.IsPersonType() {
+			descriptions[i] = lnx.FirstName + " " + lnx.LastName
+			if lnx.Title != "" {
+				descriptions[i] += " — " + lnx.Title
+			}
+		} else {
+			descriptions[i] = lnx.DestinationURL
+		}
+		urls[i] = "/" + lnx.ShortName
+	}
+
+	writeJSON(w, http.StatusOK, []any{query, names, descriptions, urls})
+}
+
 func serveHelp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, helpPageRendered)
@@ -2493,6 +2547,7 @@ var pageTemplate = `<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="search" type="application/opensearchdescription+xml" href="/opensearch.xml" title="GoLinx" />
 <style>
 :root {
   --bar-bg: #1e1e2e;

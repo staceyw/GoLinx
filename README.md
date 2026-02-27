@@ -47,6 +47,7 @@ Open `http://localhost` — done. For persistent configuration, copy `golinx.exa
 - **Links + People** — short links, employees, customers, and vendors in one unified grid
 - **Click analytics** — charts dashboard with top links, daily click histogram, and summary stats
 - **Short code generator** — one-click random short codes for bit.ly-style links
+- **Browser autocomplete** — OpenSearch integration suggests short links as you type in the address bar
 - **Fuzzy search** with type prefix filters (`:e`, `:c`, `:v`, `:l`) and tag search (`:t`)
 - **12 themes** — Catppuccin Mocha, Dracula, Nord, Solarized, Gruvbox, and more
 - **Profile pages** with avatar, contact info, and social links

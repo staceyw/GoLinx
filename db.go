@@ -389,6 +389,33 @@ func (s *SQLiteDB) LinxCount(filterType string) (int, error) {
 	return count, err
 }
 
+// Suggest returns linx whose ShortName or Description contains the query substring,
+// ordered by click count (most popular first), limited to n results.
+func (s *SQLiteDB) Suggest(query string, limit int) ([]*Linx, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	like := "%" + query + "%"
+	rows, err := s.db.Query(
+		"SELECT "+linxColumns+" FROM Linx WHERE LOWER(ShortName) LIKE LOWER(?) OR LOWER(Description) LIKE LOWER(?) ORDER BY ClickCount DESC LIMIT ?",
+		like, like, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*Linx
+	for rows.Next() {
+		c, err := scanLinx(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, c)
+	}
+	return items, rows.Err()
+}
+
 // SaveAvatar updates the avatar for a linx.
 func (s *SQLiteDB) SaveAvatar(id int64, data []byte, mime string) error {
 	s.mu.Lock()

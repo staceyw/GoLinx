@@ -291,10 +291,12 @@ PUT    /api/linx/{id}         Update linx
 DELETE /api/linx/{id}         Delete linx
 POST   /api/linx/{id}/avatar  Upload avatar
 GET    /api/linx/{id}/avatar  Serve avatar
+GET    /api/suggest             OpenSearch suggestions (?q=query, top 8 by clicks)
 GET    /api/stats              Click analytics (top links, daily histogram, summary)
 GET    /api/settings           Get setting (?key=)
 PUT    /api/settings           Save setting
 GET    /api/whoami             Current user, hostname, and Tailscale mode
+GET    /opensearch.xml          OpenSearch description (browser auto-discovery)
 GET    /.addlinx               Open the New Linx dialog
 GET    /.help                  In-app help page
 GET    /.export                Export all linx as JSON
