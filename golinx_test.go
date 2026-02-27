@@ -2128,3 +2128,148 @@ func TestDeletedPage(t *testing.T) {
 		t.Error("deleted page should contain 'Undelete' button")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Benchmarks — concurrent readers & writers on WAL-mode SQLite
+// ---------------------------------------------------------------------------
+
+// benchDB creates an isolated on-disk WAL-mode database seeded with n links.
+func benchDB(b *testing.B, n int) *SQLiteDB {
+	b.Helper()
+	dir := b.TempDir()
+	d, err := NewSQLiteDB(dir + "/bench.db")
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { d.db.Close() })
+	for i := 0; i < n; i++ {
+		d.insertLinxUnlocked(&Linx{
+			Type:           LinxTypeLink,
+			ShortName:      fmt.Sprintf("link%d", i),
+			DestinationURL: fmt.Sprintf("https://example.com/%d", i),
+			Description:    fmt.Sprintf("Benchmark link %d", i),
+			Owner:          "bench@test",
+		})
+	}
+	return d
+}
+
+// insertLinxUnlocked inserts without locking — only for benchmark seeding.
+func (s *SQLiteDB) insertLinxUnlocked(lnx *Linx) (int64, error) {
+	if lnx.Type == "" {
+		lnx.Type = LinxTypeLink
+	}
+	now := time.Now().Unix()
+	result, err := s.db.Exec(
+		`INSERT INTO Linx (Type, ShortName, DestinationURL, Description, Owner, FirstName, LastName, Title, Email, Phone, WebLink, CalLink, XLink, LinkedInLink, Color, Tags, DateCreated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		lnx.Type, lnx.ShortName, lnx.DestinationURL, lnx.Description, lnx.Owner,
+		lnx.FirstName, lnx.LastName, lnx.Title, lnx.Email, lnx.Phone,
+		lnx.WebLink, lnx.CalLink, lnx.XLink, lnx.LinkedInLink, lnx.Color, lnx.Tags, now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func BenchmarkReadOnly_LoadByShortName(b *testing.B) {
+	d := benchDB(b, 1000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			name := fmt.Sprintf("link%d", i%1000)
+			d.LoadByShortName(name)
+			i++
+		}
+	})
+}
+
+func BenchmarkReadOnly_LoadAll(b *testing.B) {
+	d := benchDB(b, 500)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			d.LoadAll("")
+		}
+	})
+}
+
+func BenchmarkReadOnly_Suggest(b *testing.B) {
+	d := benchDB(b, 1000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			d.Suggest(fmt.Sprintf("link%d", i%100), 8)
+			i++
+		}
+	})
+}
+
+func BenchmarkWriteOnly_IncrementClick(b *testing.B) {
+	d := benchDB(b, 1000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			d.IncrementClick(fmt.Sprintf("link%d", i%1000))
+			i++
+		}
+	})
+}
+
+func BenchmarkWriteOnly_Save(b *testing.B) {
+	d := benchDB(b, 0)
+	b.ResetTimer()
+	// Serial — each Save creates a unique short name.
+	for i := 0; i < b.N; i++ {
+		d.Save(&Linx{
+			Type:           LinxTypeLink,
+			ShortName:      fmt.Sprintf("bench%d", i),
+			DestinationURL: "https://example.com",
+			Owner:          "bench@test",
+		})
+	}
+}
+
+// BenchmarkConcurrent_ReadsAndWrites simulates a realistic workload:
+// many concurrent readers (LoadByShortName, Suggest) with a steady
+// stream of writers (IncrementClick). Reports combined throughput.
+func BenchmarkConcurrent_ReadsAndWrites(b *testing.B) {
+	d := benchDB(b, 1000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			idx := i % 1000
+			switch i % 10 {
+			case 0: // 10% writes — click tracking
+				d.IncrementClick(fmt.Sprintf("link%d", idx))
+			case 1: // 10% reads — suggest (heavier query)
+				d.Suggest(fmt.Sprintf("link%d", idx%100), 8)
+			default: // 80% reads — short name lookup (redirect path)
+				d.LoadByShortName(fmt.Sprintf("link%d", idx))
+			}
+			i++
+		}
+	})
+}
+
+// BenchmarkConcurrent_HeavyWrite tests a write-heavy mix (50/50).
+func BenchmarkConcurrent_HeavyWrite(b *testing.B) {
+	d := benchDB(b, 1000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			idx := i % 1000
+			if i%2 == 0 {
+				d.IncrementClick(fmt.Sprintf("link%d", idx))
+			} else {
+				d.LoadByShortName(fmt.Sprintf("link%d", idx))
+			}
+			i++
+		}
+	})
+}
