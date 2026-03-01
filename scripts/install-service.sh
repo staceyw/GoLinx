@@ -215,12 +215,18 @@ if $WRITE_CONFIG; then
   fi
 
   # Replace the default listen block with the user's chosen listener(s).
-  if [ -n "$LISTENER2" ]; then
-    LISTEN_BLOCK="listen = [\n  \"${LISTENER}\",\n  \"${LISTENER2}\",\n]"
-  else
-    LISTEN_BLOCK="listen = [\n  \"${LISTENER}\",\n]"
-  fi
-  sed -i '/^listen = \[/,/^\]/c\'"$(echo -e "$LISTEN_BLOCK")" "$CONFIG_FILE"
+  # Remove the existing listen block, then prepend the new one.
+  sed -i '/^listen = \[/,/^\]/d' "$CONFIG_FILE"
+  {
+    echo 'listen = ['
+    echo "  \"${LISTENER}\","
+    if [ -n "$LISTENER2" ]; then
+      echo "  \"${LISTENER2}\","
+    fi
+    echo ']'
+    echo ""
+    cat "$CONFIG_FILE"
+  } > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
   # Set the Tailscale hostname if provided.
   if [ -n "$TS_HOSTNAME" ]; then

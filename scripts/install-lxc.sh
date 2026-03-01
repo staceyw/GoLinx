@@ -267,12 +267,15 @@ EXAMPLE_URL="https://raw.githubusercontent.com/$REPO/main/golinx.example.toml"
 pct exec "$CTID" -- bash -c "curl -fsSL -o $CONFIG_FILE '$EXAMPLE_URL'"
 
 # Replace the default listen block with the user's chosen listener(s).
+# Build the new listen block locally, then push it into the container.
+NEW_LISTEN="listen = [\n  \"${LISTENER}\","
 if [ -n "$LISTENER2" ]; then
-  LISTEN_BLOCK="listen = [\n  \"${LISTENER}\",\n  \"${LISTENER2}\",\n]"
-else
-  LISTEN_BLOCK="listen = [\n  \"${LISTENER}\",\n]"
+  NEW_LISTEN="${NEW_LISTEN}\n  \"${LISTENER2}\","
 fi
-pct exec "$CTID" -- bash -c "sed -i '/^listen = \[/,/^\]/c\\$(echo -e "$LISTEN_BLOCK")' $CONFIG_FILE"
+NEW_LISTEN="${NEW_LISTEN}\n]"
+
+pct exec "$CTID" -- bash -c "sed -i '/^listen = \[/,/^\]/d' $CONFIG_FILE"
+pct exec "$CTID" -- bash -c "{ printf '${NEW_LISTEN}\n\n'; cat $CONFIG_FILE; } > ${CONFIG_FILE}.tmp && mv ${CONFIG_FILE}.tmp $CONFIG_FILE"
 
 # Set the Tailscale hostname if provided.
 if [ -n "$TS_HOSTNAME" ]; then
