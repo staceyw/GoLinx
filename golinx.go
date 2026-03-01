@@ -580,7 +580,29 @@ func validateTSHostname(name string) error {
 	return nil
 }
 
-// Run is the main entry point for the application.
+// downloadAvatar fetches an image URL and returns the body and content type.
+// Returns an error on any failure so the caller can fall back gracefully.
+func downloadAvatar(url string) ([]byte, string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	mime := resp.Header.Get("Content-Type")
+	if mime == "" {
+		mime = "image/jpeg"
+	}
+	return data, mime, nil
+}
+
 // seedDefaults creates sample linx on first run (empty DB) so new users
 // have something to see instead of an empty grid.
 func seedDefaults() {
@@ -598,7 +620,7 @@ func seedDefaults() {
 	})
 
 	// First employee.
-	db.Save(&Linx{
+	ceoID, err := db.Save(&Linx{
 		Type:      LinxTypeEmployee,
 		ShortName: "ceo",
 		FirstName: "Linky",
@@ -606,6 +628,11 @@ func seedDefaults() {
 		Title:     "Chief Everything Officer",
 		Email:     "linky@localhost",
 	})
+	if err == nil {
+		if avatar, mime, dlErr := downloadAvatar("https://raw.githubusercontent.com/staceyw/GoLinx/main/static/linky.jpg"); dlErr == nil {
+			db.SaveAvatar(ceoID, avatar, mime)
+		}
+	}
 
 	// Our Mission document (Easter egg).
 	id, err := db.Save(&Linx{
