@@ -1,6 +1,6 @@
 # GoLinx
 
-URL shortener and people directory in a single Go binary. Type `go/jira` instead of hunting for a bookmark — short links redirect instantly and people linx get automatic profile pages. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners.
+URL shortener, people directory, and document host in a single Go binary. Type `go/jira` instead of hunting for a bookmark — short links redirect instantly, people linx get automatic profile pages, and documents render in a themed reader. Everything runs from one embedded SPA with SQLite storage. Supports HTTP, HTTPS, and Tailscale listeners.
 
 ![screenshot](docs/screenshot.svg)
 
@@ -50,13 +50,14 @@ Open `http://localhost` — done. For persistent configuration, copy `golinx.exa
 
 ## Highlights
 
-- **Links + People** — short links, employees, customers, and vendors in one unified grid
+- **Links + People + Documents** — short links, people profiles, and hosted documents in one unified grid
 - **Click analytics** — charts dashboard with top links, daily click histogram, and summary stats
 - **Short code generator** — one-click random short codes for bit.ly-style links
 - **Browser autocomplete** — OpenSearch integration suggests short links as you type in the address bar
 - **Fuzzy search** with type prefix filters (`:e`, `:c`, `:v`, `:l`) and tag search (`:t`)
 - **12 themes** — Catppuccin Mocha, Dracula, Nord, Solarized, Gruvbox, and more
 - **Profile pages** with avatar, contact info, and social links
+- **Document hosting** — publish Markdown, HTML, or plain text at `go/doc-name` with a themed reader
 - **Path passthrough** — `/github/org/repo` resolves through `/github` to the full URL
 - **Go template URLs** — `{{.Path}}`, `{{.User}}`, `{{.Query}}` for dynamic routing
 - **Soft delete** — deleted items are retained for 30 days with one-click restore at `/.deleted`
@@ -71,6 +72,7 @@ Open `http://localhost` — done. For persistent configuration, copy `golinx.exa
 | Employee | Emp | Profile page |
 | Customer | Cus | Profile page |
 | Vendor | Ven | Profile page |
+| Document | Doc | Themed reader (Markdown, HTML, or plain text) |
 
 ## Documentation
 
